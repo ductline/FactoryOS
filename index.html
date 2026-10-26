@@ -148,6 +148,10 @@ body.dragging{cursor:grabbing}
 body.dragging *{cursor:grabbing!important}
 .board.big{grid-auto-columns:minmax(260px,1fr)}
 .board.big .card .cl{font-size:17px}
+.dlv{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);padding-top:5px}
+.dlv b{font-family:var(--display);font-size:16px;font-weight:600;color:var(--ok);letter-spacing:.02em}
+.dlv.late b{color:var(--bad)} .dlv span{font-size:12px}
+.card .wo{white-space:nowrap} .card .mv{flex-wrap:wrap} .card .r1>span:last-child{flex:none}
 .board.big .colh h3{font-size:18px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -1134,20 +1138,24 @@ function colOrder(list){return list.sort((a,b)=>{const ra=a.rank??null,rb=b.rank
   return (b.priority==="urgent")-(a.priority==="urgent")||String(a.dueDate).localeCompare(String(b.dueDate))})}
 function istToday(){return new Date(new Date().toLocaleString("en-US",{timeZone:"Asia/Kolkata"}))}
 function addWorkdays(n){const c=cap(),d=istToday();d.setHours(0,0,0,0);let left=Math.ceil(n-1e-9);
-  if(left<=0)return d.toISOString().slice(0,10);
+  if(left<=0)return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   while(left>0){d.setDate(d.getDate()+1);if(c.workDays.includes(d.getDay()))left--}
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`}
 /* Queue: jobs nearest to done first (later stage), then the order set on the board. */
+const DELIVER_LAG=1; // finished jobs leave the next working day
 function forecast(){
-  const c=cap(),out={};let cum=0;
+  const c=cap(),out={};let cum=0,real=0;
   const open=S.wos.filter(w=>w.stage!=="dispatched");
   const byStage=STAGES.slice().reverse().flatMap(([k])=>colOrder(open.filter(w=>w.stage===k)));
+  // jobs without a part list are sized like a typical job so they still get a (rough) date and hold their place in the queue
+  const areas=open.map(w=>+w.area).filter(a=>a>0).sort((a,b)=>a-b);const typical=areas.length?areas[Math.floor(areas.length/2)]:+c.m2PerDay||600;
   for(const w of byStage){
-    if(!(+w.area>0)){out[w.id]={eta:null,nolist:true};continue}
-    cum+=(+w.area)*(REMAIN[w.stage]??1);
-    const days=cum/(+c.m2PerDay||1);out[w.id]={eta:addWorkdays(days),days};
+    const rough=!(+w.area>0);const area=rough?typical:+w.area;
+    cum+=area*(REMAIN[w.stage]??1);if(!rough)real+=area*(REMAIN[w.stage]??1);
+    const days=cum/(+c.m2PerDay||1);
+    out[w.id]={eta:rough?null:addWorkdays(days),days,nolist:rough,rough,deliver:addWorkdays(days+DELIVER_LAG)};
   }
-  return {by:out,load:cum,days:cum/(+c.m2PerDay||1)};
+  return {by:out,load:real,days:real/(+c.m2PerDay||1)};
 }
 function vFloor(){
   if(!Object.keys(S.materials).length&&!S.wos.length)return setupEmpty();
@@ -1247,16 +1255,22 @@ function matChip(w,oh){
   return shortFor(w,oh).length?`<span class="chip bad">Material short</span>`:`<span class="chip info">Ready to issue</span>`;
 }
 function dueChip(w){if(w.stage==="dispatched")return `<span class="chip ok">Dispatched ${dfmt((w.dispatch?.at||"").slice(0,10))}</span>`;const d=daysTo(w.dueDate);if(d===null)return "";return d<0?`<span class="chip bad">${-d}d late${w.dueAssumed?" (est.)":""}</span>`:d<=2?`<span class="chip warn">Due ${d===0?"today":dfmt(w.dueDate)}${w.dueAssumed?" (est.)":""}</span>`:`<span class="chip">Due ${dfmt(w.dueDate)}${w.dueAssumed?" (est.)":""}</span>`}
+const dlvFmt=s=>s?new Date(s+"T00:00").toLocaleDateString("en-IN",{weekday:"short",day:"2-digit",month:"short"}):"—";
+function deliveryLine(w,f){
+  if(!f||w.stage==="dispatched")return "";
+  const late=w.dueDate&&f.deliver>w.dueDate;
+  return `<div class="dlv ${late?"late":""}" title="${f.rough?"Rough: no part list yet, sized like a typical job. ":""}Forecast at ${fmt(cap().m2PerDay,0)} m²/day, after the jobs ahead of it, plus 1 day to dispatch">Est. delivery <b>${dlvFmt(f.deliver)}</b>${f.rough?" <span>(rough)</span>":""}</div>`}
 function etaChip(w,f){
-  if(!f||w.stage==="dispatched")return "";if(f.nolist)return `<span class="chip">No finish date</span>`;
+  if(!f||w.stage==="dispatched")return "";if(f.nolist)return "";
   if(w.stage==="ready")return `<span class="chip ok">Ready</span>`;
-  const late=w.dueDate&&f.eta>w.dueDate;return `<span class="chip ${late?"bad":"ok"}" title="Forecast finish at current capacity">Done ~${dfmt(f.eta)}</span>`}
+  return ""}
 function card(w,oh,f){
   const late=w.stage!=="dispatched"&&daysTo(w.dueDate)<0;const i=STAGES.findIndex(s=>s[0]===w.stage);
   return `<div class="card ${late?"late":w.priority==="urgent"?"urgent":""}" data-wo="${esc(w.id)}" tabindex="0">
    <div class="r1"><span class="wo">${esc(w.woNo)}</span><span style="display:flex;gap:4px;align-items:center">${w.sample?`<span class="chip sample">SAMPLE</span>`:w.priority==="urgent"?`<span class="chip warn">Urgent</span>`:""}${S.canWrite&&w.stage!=="dispatched"?`<button class="x" data-dupwo="${esc(w.id)}" title="Close as duplicate" aria-label="Close ${esc(w.woNo)} as duplicate" style="font-size:18px;padding:0 4px">×</button>`:""}</span></div>
    <div class="cl">${esc(w.client)}</div>${w.project?`<div class="note">${esc(w.project)}</div>`:""}
    <div class="meta"><span class="mono">${fmt(w.area,1)} m² · ${fmt(w.kg)} kg</span>${w.insulated?"<span>· insulated</span>":""}</div>
+   ${deliveryLine(w,f)}
    <div class="meta">${dueChip(w)}${etaChip(w,f)}${matChip(w,oh)}</div>
    ${S.canWrite?`<div class="mv">${needsList(w)?`<button class="btn sm" data-listgiven="${esc(w.id)}" title="Part list received from the client or drawing office">Mark part list given</button>`:""}${i>0&&w.stage!=="dispatched"?`<button class="btn sm" data-move="-1" data-id="${esc(w.id)}" aria-label="Move back">‹</button>`:""}${i<STAGES.length-1?`<button class="btn sm ${w.stage==="planned"?"":"pri"}" data-move="1" data-id="${esc(w.id)}">${w.stage==="ready"?"Dispatch":"Next ›"}</button>`:""}</div>`:""}
   </div>`;
@@ -1271,13 +1285,14 @@ function vClosed(){
 function vWO(){
   const q=S.q.toLowerCase();const oh=onHand();
   if(S.woFilter==="closed")return vClosed();
+  const fcw=forecast().by;
   let list=S.wos.filter(w=>S.woFilter==="all"||(S.woFilter==="open"?w.stage!=="dispatched":w.stage==="dispatched"));
   if(q)list=list.filter(w=>[w.woNo,w.client,w.project,w.site].join(" ").toLowerCase().includes(q));
   list.sort((a,b)=>String(a.dueDate).localeCompare(String(b.dueDate)));
   const seg=["open","dispatched","all","closed"].map(f=>`<button aria-pressed="${S.woFilter===f}" data-wof="${f}">${f[0].toUpperCase()+f.slice(1)}</button>`).join("");
-  const rows=list.map(w=>`<tr class="click" data-wo="${esc(w.id)}"><td class="mono">${esc(w.woNo)}${w.sample?' <span class="chip sample">SAMPLE</span>':""}</td><td><b>${esc(w.client)}</b><div class="note">${esc(w.project||"")}</div></td><td>${STAGE_N[w.stage]}</td><td>${dueChip(w)}</td><td class="num">${fmt(w.area,1)}</td><td class="num">${fmt(w.kg)}</td><td>${matChip(w,oh)}</td></tr>`).join("");
+  const rows=list.map(w=>`<tr class="click" data-wo="${esc(w.id)}"><td class="mono">${esc(w.woNo)}${w.sample?' <span class="chip sample">SAMPLE</span>':""}</td><td><b>${esc(w.client)}</b><div class="note">${esc(w.project||"")}</div></td><td>${STAGE_N[w.stage]}</td><td>${dueChip(w)}</td><td>${w.stage==="dispatched"?"—":fcw[w.id]?`<span style="white-space:nowrap;${w.dueDate&&fcw[w.id].deliver>w.dueDate?"color:var(--bad)":""}">${dlvFmt(fcw[w.id].deliver)}</span>${fcw[w.id].rough?'<div class="note">rough</div>':""}`:""}</td><td class="num">${fmt(w.area,1)}</td><td class="num">${fmt(w.kg)}</td><td>${matChip(w,oh)}</td></tr>`).join("");
   return `<div class="bar"><h2>Work orders</h2><div class="seg">${seg}</div><input id="woq" placeholder="Search WO, client, project" value="${esc(S.q)}" style="max-width:260px"><div class="sp"></div><button class="btn pri" data-act="new-wo" ${S.canWrite?"":"disabled"}>New work order</button></div>
-  <div class="panel tscroll">${rows?`<table><thead><tr><th>WO</th><th>Client / project</th><th>Stage</th><th>Due</th><th class="num">Area m²</th><th class="num">GI kg</th><th>Material</th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><h3>No work orders here</h3><p>Create a work order from the client's duct schedule. Area, GI weight and the bill of materials calculate as you enter sizes.</p></div>`}</div>`;
+  <div class="panel tscroll">${rows?`<table><thead><tr><th>WO</th><th>Client / project</th><th>Stage</th><th>Due</th><th>Est. delivery</th><th class="num">Area m²</th><th class="num">GI kg</th><th>Material</th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><h3>No work orders here</h3><p>Create a work order from the client's duct schedule. Area, GI weight and the bill of materials calculate as you enter sizes.</p></div>`}</div>`;
 }
 document.addEventListener("input",e=>{if(e.target.id==="woq"){S.q=e.target.value;const p=e.target.selectionStart;render();const i=$("#woq");if(i){i.focus();i.setSelectionRange(p,p)}}});
 document.addEventListener("click",e=>{const b=e.target.closest("[data-wof]");if(b){S.woFilter=b.dataset.wof;render()}});
@@ -1434,7 +1449,7 @@ function woDetail(id){
   const log=(w.stageLog||[]).slice().reverse().map(l=>`<div class="note">${dtfmt(l.at)} · ${esc(STAGE_N[l.s]||l.s)}${l.by?" · "+esc(nm(l.by)):""}${l.note?" · "+esc(l.note):""}</div>`).join("");
   const canEdit=S.canWrite&&w.stage==="planned"&&!w.materialIssued;
   modal(head(`${esc(w.woNo)} <span class="muted" style="font-weight:500">· ${esc(w.client)}</span>`)+`<div class="mb">
-   <div class="bar">${w.sample?'<span class="chip sample">SAMPLE</span>':""}${w.priority==="urgent"?'<span class="chip warn">Urgent</span>':""}${dueChip(w)}${matChip(w,oh)}<span class="note">${esc([w.project,w.site].filter(Boolean).join(" · "))}</span></div>
+   <div class="bar">${w.sample?'<span class="chip sample">SAMPLE</span>':""}${w.priority==="urgent"?'<span class="chip warn">Urgent</span>':""}${dueChip(w)}${matChip(w,oh)}${(()=>{const f=forecast().by[w.id];return f&&w.stage!=="dispatched"?`<span class="chip ${w.dueDate&&f.deliver>w.dueDate?"bad":"ok"}" title="${f.rough?"Rough: no part list yet":"Forecast at current shop capacity"}">Est. delivery ${dlvFmt(f.deliver)}${f.rough?" (rough)":""}</span>`:""})()}<span class="note">${esc([w.project,w.site].filter(Boolean).join(" · "))}</span></div>
    ${w.clientPO||w.clientStatus||w.source?.url?`<div class="note">${w.clientStatus?esc(w.clientStatus):""}${w.clientPO?` · Client PO <b class="mono">${esc(w.clientPO)}</b>`:""}${w.source?.url?` · <a href="${esc(w.source.url)}" target="_blank" rel="noopener">Open email thread</a>`:""}</div>`:""}
    <div class="stages">${stg}</div>
    <div class="totals"><span><b>${fmt(w.area,2)}</b>m²</span><span><b>${fmt(w.kg)}</b>kg GI net</span><span><b>${(w.items||[]).reduce((s,i)=>s+(+i.qty||0),0)}</b>pieces</span>${w.insulated?"<span><b>Yes</b>insulated</span>":""}</div>
