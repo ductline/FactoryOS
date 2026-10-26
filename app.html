@@ -1227,10 +1227,12 @@ async function dropTo(id,to,beforeId){
     if(to==="dispatched"&&from!=="dispatched")dispatchForm(w);
   }catch(err){dbErr(err)}
 }
-const needsList=w=>!(w.items||[]).length;
+const noItems=w=>!(w.items||[]).length;
+const needsList=w=>noItems(w)&&!w.listGiven;
 function matChip(w,oh){
   if(w.stage==="dispatched")return "";
   if(needsList(w))return `<span class="chip warn">Part list needed</span>`;
+  if(noItems(w))return `<span class="chip info" title="Marked given${w.listGiven?.by?" by "+esc(nm(w.listGiven.by)):""}">Part list given</span>`;
   if(w.materialIssued)return `<span class="chip ok">Material issued</span>`;
   return shortFor(w,oh).length?`<span class="chip bad">Material short</span>`:`<span class="chip info">Ready to issue</span>`;
 }
@@ -1246,7 +1248,7 @@ function card(w,oh,f){
    <div class="cl">${esc(w.client)}</div>${w.project?`<div class="note">${esc(w.project)}</div>`:""}
    <div class="meta"><span class="mono">${fmt(w.area,1)} m² · ${fmt(w.kg)} kg</span>${w.insulated?"<span>· insulated</span>":""}</div>
    <div class="meta">${dueChip(w)}${etaChip(w,f)}${matChip(w,oh)}</div>
-   ${S.canWrite?`<div class="mv">${i>0&&w.stage!=="dispatched"?`<button class="btn sm" data-move="-1" data-id="${esc(w.id)}" aria-label="Move back">‹</button>`:""}${i<STAGES.length-1?`<button class="btn sm ${w.stage==="planned"?"":"pri"}" data-move="1" data-id="${esc(w.id)}">${w.stage==="ready"?"Dispatch":"Next ›"}</button>`:""}</div>`:""}
+   ${S.canWrite?`<div class="mv">${needsList(w)?`<button class="btn sm" data-listgiven="${esc(w.id)}" title="Part list received from the client or drawing office">Mark part list given</button>`:""}${i>0&&w.stage!=="dispatched"?`<button class="btn sm" data-move="-1" data-id="${esc(w.id)}" aria-label="Move back">‹</button>`:""}${i<STAGES.length-1?`<button class="btn sm ${w.stage==="planned"?"":"pri"}" data-move="1" data-id="${esc(w.id)}">${w.stage==="ready"?"Dispatch":"Next ›"}</button>`:""}</div>`:""}
   </div>`;
 }
 function vWO(){
@@ -1419,8 +1421,9 @@ function woDetail(id){
    <div class="stages">${stg}</div>
    <div class="totals"><span><b>${fmt(w.area,2)}</b>m²</span><span><b>${fmt(w.kg)}</b>kg GI net</span><span><b>${(w.items||[]).reduce((s,i)=>s+(+i.qty||0),0)}</b>pieces</span>${w.insulated?"<span><b>Yes</b>insulated</span>":""}</div>
    <div><p class="sec">Bill of materials</p><div class="tscroll"><table><thead><tr><th>Material</th><th class="num">Required</th><th class="num">In stock</th><th></th></tr></thead><tbody>${bom}</tbody></table></div>
-   ${needsList(w)?`<div class="banner" style="margin-top:10px">No part list on this job yet. Import Arvind's part-list Excel below, or tag the drawing in the Drawings tab.</div>`:""}
-   ${!w.materialIssued&&S.canWrite&&!needsList(w)?`<div class="bar" style="margin-top:10px"><button class="btn haz" data-issue="${esc(w.id)}" ${short.length?"disabled":""}>Issue material to floor</button>${short.length?`<span class="note">Short on ${short.length} item${short.length>1?"s":""}. Receive stock or raise a PO from Material planning.</span>`:`<span class="note">Reserves the BOM and releases the job to cutting. Stock comes off when the Zoho invoice goes out.</span>`}</div>`:w.issuedAt?`<p class="note">Issued ${dtfmt(w.issuedAt)}${w.issuedBy?" by "+esc(nm(w.issuedBy)):""}</p>`:""}</div>
+   ${needsList(w)?`<div class="banner bar" style="margin-top:10px"><span style="flex:1;min-width:220px">No part list on this job yet. If the client or drawing office has given it, mark it here. Import Arvind's Excel below, or tag the drawing in the Drawings tab, to calculate material.</span>${S.canWrite?`<button class="btn sm pri" data-listgiven="${esc(w.id)}">Mark part list given</button>`:""}</div>`:""}
+   ${noItems(w)&&w.listGiven?`<div class="banner bar" style="margin-top:10px;background:var(--info-bg);color:var(--fg)"><span style="flex:1;min-width:220px">Part list marked given${w.listGiven.by?" by "+esc(nm(w.listGiven.by)):""} on ${dtfmt(w.listGiven.at)}. Material isn't calculated until the Excel is imported below.</span>${S.canWrite?`<button class="btn sm" data-listundo="${esc(w.id)}">Undo</button>`:""}</div>`:""}
+   ${!w.materialIssued&&S.canWrite&&!noItems(w)?`<div class="bar" style="margin-top:10px"><button class="btn haz" data-issue="${esc(w.id)}" ${short.length?"disabled":""}>Issue material to floor</button>${short.length?`<span class="note">Short on ${short.length} item${short.length>1?"s":""}. Receive stock or raise a PO from Material planning.</span>`:`<span class="note">Reserves the BOM and releases the job to cutting. Stock comes off when the Zoho invoice goes out.</span>`}</div>`:w.issuedAt?`<p class="note">Issued ${dtfmt(w.issuedAt)}${w.issuedBy?" by "+esc(nm(w.issuedBy)):""}</p>`:""}</div>
    <div><p class="sec">Duct schedule</p><div class="tscroll"><table><thead><tr><th>Piece</th><th class="num">Size mm</th><th class="num">Length</th><th class="num">Qty</th><th>Gauge</th><th class="num">m²</th></tr></thead><tbody>${items}</tbody></table></div></div>
    ${w.dispatch?`<div><p class="sec">Dispatch</p><p class="note">${dtfmt(w.dispatch.at)} · Vehicle ${esc(w.dispatch.vehicle||"—")} · DC ${esc(w.dispatch.dc||"—")}${w.dispatch.note?" · "+esc(w.dispatch.note):""}</p></div>`:""}
    ${w.notes?`<div><p class="sec">Notes</p><p style="margin:0">${esc(w.notes)}</p></div>`:""}
@@ -1431,7 +1434,7 @@ function woDetail(id){
 function nextStage(w,dir){let i=STAGES.findIndex(s=>s[0]===w.stage)+dir;if(STAGES[i]?.[0]==="insulation"&&!w.insulated)i+=dir;return STAGES[Math.max(0,Math.min(STAGES.length-1,i))][0]}
 async function move(id,dir){
   const w=S.wos.find(x=>x.id===id);if(!w)return;
-  if(dir>0&&w.stage==="planned"&&!w.materialIssued){woDetail(id);return toast("Issue material before the job goes to cutting.")}
+  if(dir>0&&w.stage==="planned"&&!w.materialIssued&&!(noItems(w)&&w.listGiven)){woDetail(id);return toast("Issue material before the job goes to cutting.")}
   if(dir>0&&w.stage==="ready")return dispatchForm(w);
   const to=nextStage(w,dir);
   try{await S.db.doc("workorders/"+id).update({stage:to,stageLog:[...(w.stageLog||[]),{s:to,at:new Date().toISOString(),by:S.uid,...(dir<0?{note:"moved back"}:{})}]});toast(`${w.woNo} → ${STAGE_N[to]}`);if($("#modal").innerHTML)woDetail(id)}catch(err){dbErr(err)}
@@ -1444,9 +1447,13 @@ async function doDispatch(id){
   const w=S.wos.find(x=>x.id===id);const at=new Date().toISOString();
   try{await S.db.doc("workorders/"+id).update({stage:"dispatched",dispatch:{vehicle:$("#d-veh").value.trim(),dc:$("#d-dc").value.trim(),note:$("#d-note").value.trim(),at,by:S.uid},stageLog:[...(w.stageLog||[]),{s:"dispatched",at,by:S.uid}]});closeM();toast(w.woNo+" dispatched")}catch(err){dbErr(err)}
 }
+async function setListGiven(id,on){
+  const w=S.wos.find(x=>x.id===id);if(!w||!S.canWrite)return;
+  try{await S.db.doc("workorders/"+id).update({listGiven:on?{at:new Date().toISOString(),by:S.uid}:null});toast(on?w.woNo+": part list marked given":w.woNo+": back to part list needed");if($("#modal").innerHTML)woDetail(id)}catch(err){dbErr(err)}
+}
 async function issue(id){
   const w=S.wos.find(x=>x.id===id);const oh=onHand();
-  if(needsList(w))return toast("Import the part list before issuing material.");
+  if(noItems(w))return toast("Import the part list before issuing material.");
   if(shortFor(w,oh).length)return toast("Stock changed. Material is now short.");
   try{const at=new Date().toISOString();
     await S.db.doc("workorders/"+id).update({materialIssued:true,issuedAt:at,issuedBy:S.uid});toast("Material released for "+w.woNo);woDetail(id)}catch(err){dbErr(err)}
@@ -1610,8 +1617,10 @@ function dispDetail(id){
 /* ===== actions ===== */
 document.addEventListener("click",e=>{
   const dd=e.target.closest("[data-disp]");if(dd){e.stopPropagation();return dispDetail(dd.dataset.disp)}
-  const t=e.target.closest("[data-act],[data-wo],[data-move],[data-issue],[data-mat],[data-recv],[data-adj],[data-postmv],[data-editmat],[data-editwo],[data-delwo],[data-dispatch],[data-po],[data-pldel],[data-pocancel]");if(!t)return;
+  const t=e.target.closest("[data-act],[data-wo],[data-move],[data-listgiven],[data-listundo],[data-issue],[data-mat],[data-recv],[data-adj],[data-postmv],[data-editmat],[data-editwo],[data-delwo],[data-dispatch],[data-po],[data-pldel],[data-pocancel]");if(!t)return;
   if(t.dataset.move){e.stopPropagation();return move(t.dataset.id,+t.dataset.move)}
+  if(t.dataset.listgiven){e.stopPropagation();return setListGiven(t.dataset.listgiven,true)}
+  if(t.dataset.listundo){e.stopPropagation();return setListGiven(t.dataset.listundo,false)}
   if(t.dataset.recv){e.stopPropagation();return moveForm(t.dataset.recv,"receipt")}
   if(t.dataset.adj){e.stopPropagation();return moveForm(t.dataset.adj,"adjust")}
   if(t.dataset.issue)return issue(t.dataset.issue);
