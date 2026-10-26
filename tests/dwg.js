@@ -1,0 +1,22 @@
+const {chromium}=require('playwright');const fs=require('fs');const path=require('path');
+(async()=>{const b=await chromium.launch();const p=await b.newPage({viewport:{width:1400,height:1000}});
+const errs=[];p.on('pageerror',e=>errs.push(e.message));p.on('console',m=>{if(m.type()==='error')errs.push(m.text())});
+const nm=__dirname+'/node_modules/';
+await p.route('**/cdn.jsdelivr.net/**',r=>r.abort());
+await p.route('**/cdnjs.cloudflare.com/**',r=>{const u=r.request().url();const f=u.includes('jspdf')?nm+'jspdf/dist/jspdf.umd.min.js':u.includes('jszip')?nm+'jszip/dist/jszip.min.js':nm+'exceljs/dist/exceljs.min.js';r.fulfill({path:f,contentType:'application/javascript'})});
+await p.route('**/fonts.g*/**',r=>r.abort());
+await p.goto('http://127.0.0.1:8765/test.html#draw');await p.waitForTimeout(1500);
+await p.setInputFiles('#dwg-file','/mnt/user-data/attachments/5190d74f-1896-5f7d-b42e-7d5799075e44/6b7f5e3f-R6-AUDIO_NOW_SPEAKER_AND_AC_LAYOUT.dwg');
+await p.waitForFunction(()=>T.res||T.error,null,{timeout:90000});
+console.log('tagged',await p.evaluate(()=>T.error||T.rows.length+' rows'));
+await p.fill('#tj-client','Star Airwell');await p.fill('#tj-floor','GF');
+await p.click('[data-act="tag-pdf"]');await p.waitForFunction(()=>window.__DL,null,{timeout:60000});
+const dl=await p.evaluate(()=>({filename:__DL.filename,size:__DL.size,b64:__DL.b64}));fs.writeFileSync(__dirname+'/out.pdf',Buffer.from(dl.b64,'base64'));console.log('pdf',dl.filename,dl.size);
+await p.waitForTimeout(800);
+console.log('assets',JSON.stringify(await p.evaluate(()=>__ASSETS)),'pack set',await p.evaluate(()=>!!T.packRes));
+// simulate the saved job appearing in history with its pack, then open from history
+await p.evaluate(()=>{const pk=packOf(sceneOf());const url=URL.createObjectURL(new Blob([JSON.stringify(pk)],{type:"application/json"}));S.tagjobs.push({id:"j1",file:T.file,client:"Star Airwell",name:T.job.name,floor:"GF",dlno:"1",qty:pk.qty,sqft:pk.sqft,rows:compactRows(T.rows),createdAt:new Date().toISOString(),pack:{id:"x",url}});
+  document.querySelector('[data-act="tag-reset"]').click()});
+await p.waitForTimeout(500);
+await p.click('[data-tjview="j1"]');await p.waitForTimeout(1200);await p.screenshot({path:__dirname+'/view.png'});
+console.log('ERR',errs.filter(e=>!/fonts|ERR_FAILED|jsdelivr|net::/.test(e)).join('\n'));await b.close()})();

@@ -1,0 +1,14 @@
+const {chromium}=require('playwright');
+(async()=>{const b=await chromium.launch();const p=await b.newPage({viewport:{width:1400,height:1000}});
+const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.goto('file://'+__dirname+'/test.html#po');await p.waitForTimeout(1200);
+await p.evaluate(()=>{S.pos.push({id:"t1",poNo:"TEST-SLIT",supplier:"Test Slitter",status:"received",receivedAt:"2026-10-22T10:00:00+05:30",createdAt:"2026-10-22T10:00:00+05:30",lines:[{code:"GI-22-FO",qty:1500,rate:88.5,width:137,coil:"SL-01"},{code:"GI-24",qty:2000,rate:89,spec:"0.60x152 120GSM",coil:"SL-02"}]});render.force=true;render()});
+await p.waitForTimeout(300);
+await p.screenshot({path:__dirname+'/po1.png',fullPage:false});
+await p.click('details summary');await p.waitForTimeout(200);
+await p.screenshot({path:__dirname+'/po2.png',fullPage:true});
+await p.click('[data-coilper="all"]');await p.waitForTimeout(200);
+await p.click('[data-act="new-po"]');await p.waitForTimeout(200);
+await p.selectOption('#pl-c-0','GI-22-FO');await p.waitForTimeout(200);
+await p.screenshot({path:__dirname+'/po3.png'});
+console.log('ERR',errs.join('\n'));await b.close()})();

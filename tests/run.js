@@ -1,0 +1,12 @@
+const {chromium}=require('playwright');
+(async()=>{const b=await chromium.launch();const p=await b.newPage({viewport:{width:1300,height:1100}});
+const errs=[];p.on('pageerror',e=>errs.push(e.message));p.on('console',m=>{if(m.type()==='error')errs.push(m.text())});
+await p.goto('file://'+__dirname+'/test.html#dispatch');await p.waitForTimeout(1500);
+await p.screenshot({path:__dirname+'/disp.png',fullPage:true});
+const oh=await p.evaluate(()=>onHand());console.log(JSON.stringify(oh));
+await p.click('[data-disp="TEST-AFTER"]');await p.waitForTimeout(300);await p.screenshot({path:__dirname+'/disp-detail.png'});
+await p.evaluate(()=>closeM&&closeM());
+await p.evaluate(()=>go('stock'));await p.waitForTimeout(300);await p.screenshot({path:__dirname+'/stock.png',fullPage:true});
+await p.click('[data-mat="GI-24"]');await p.waitForTimeout(300);await p.screenshot({path:__dirname+'/gi24.png'});
+await p.setViewportSize({width:390,height:800});await p.evaluate(()=>{closeM();go('dispatch')});await p.waitForTimeout(300);await p.screenshot({path:__dirname+'/mobile.png',fullPage:true});
+console.log('ERR',errs.join('\n'));await b.close()})();
