@@ -12,10 +12,13 @@
   const screen = (h, p, btn) => { const m = $m(); if (m) m.innerHTML = `<div class="panel empty"><h3>${h}</h3><p>${p}</p>${btn || ""}</div>`; };
 
   let fb, auth, fs, me = null, role = null;
+  const domReady = () => new Promise(r => document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", r, { once: true }) : r());
   const ready = (async () => {
+    await domReady();
     const cfg = window.FIREBASE_CONFIG;
-    if (!cfg || !cfg.apiKey || /PASTE/.test(cfg.apiKey)) { screen("Factory OS isn't connected yet", "Add the Firebase settings to firebase-config.js."); throw new Error("no-config"); }
-    for (const f of ["firebase-app-compat.js", "firebase-auth-compat.js", "firebase-firestore-compat.js"]) await loadJs(SDK + f);
+    if (!cfg || !cfg.apiKey || /PASTE/.test(cfg.apiKey)) { screen("Factory OS isn't connected yet", "The Firebase database setup isn't finished. Once its settings are added to firebase-config.js, this page signs you in and loads the factory data."); throw new Error("no-config"); }
+    try { for (const f of ["firebase-app-compat.js", "firebase-auth-compat.js", "firebase-firestore-compat.js"]) await loadJs(SDK + f); }
+    catch (e) { screen("Couldn't reach Firebase", "Check the internet connection and reload the page."); throw e; }
     fb = window.firebase; fb.initializeApp(cfg); auth = fb.auth(); fs = fb.firestore();
     try { fs.settings({ ignoreUndefinedProperties: true, merge: true }); } catch (e) { }
     try { await fs.enablePersistence({ synchronizeTabs: true }); } catch (e) { }
