@@ -141,8 +141,13 @@ body.dragging *{cursor:grabbing!important}
 .board.big{grid-auto-columns:minmax(260px,1fr)}
 .board.big .card .cl{font-size:17px}
 .dlv{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);padding-top:5px}
-.dlv b{font-family:var(--display);font-size:16px;font-weight:600;color:var(--ok);letter-spacing:.02em}
-.dlv.late b{color:var(--bad)} .dlv span{font-size:12px}
+.dlv{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px}
+.dlv .lbl{font-size:13px}
+.dlv b,.dlvin{font-family:var(--display);font-size:16px;font-weight:600;color:var(--ok);letter-spacing:.02em}
+.dlvin{width:auto;max-width:100%;padding:1px 4px;background:transparent;border:1px solid transparent;border-radius:4px;cursor:pointer}
+.dlvin:hover,.dlvin:focus{border-color:var(--line);background:var(--bg)}
+.dlv.late b,.dlvin.late{color:var(--bad)} .dlv span{font-size:12px}
+.dlv .behind{flex-basis:100%;font-size:12px;color:var(--bad)}
 .card .wo{white-space:nowrap} .card .mv{flex-wrap:wrap} .card .r1>span:last-child{flex:none}
 .board.big .colh h3{font-size:18px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
@@ -1248,8 +1253,18 @@ function dueChip(w){if(w.stage==="dispatched")return `<span class="chip ok">Disp
 const dlvFmt=s=>s?new Date(s+"T00:00").toLocaleDateString("en-IN",{weekday:"short",day:"2-digit",month:"short"}):"—";
 function deliveryLine(w,f){
   if(!f||w.stage==="dispatched")return "";
-  const late=w.dueDate&&f.deliver>w.dueDate;
-  return `<div class="dlv ${late?"late":""}" title="${f.rough?"Rough: no part list yet, sized like a typical job. ":""}Forecast at ${fmt(cap().m2PerDay,0)} m²/day, after the jobs ahead of it, plus 1 day to dispatch">Est. delivery <b>${dlvFmt(f.deliver)}</b>${f.rough?" <span>(rough)</span>":""}</div>`}
+  const set=w.deliveryDate||"",show=set||f.deliver;
+  const late=w.dueDate&&show>w.dueDate,behind=set&&f.deliver>set;
+  const tip=`Forecast ${dlvFmt(f.deliver)}${f.rough?" (rough: no part list yet)":""} at ${fmt(cap().m2PerDay,0)} m²/day, after the jobs ahead of it, plus 1 day to dispatch`;
+  const val=S.canWrite?`<input type="date" class="dlvin ${late?"late":""}" data-dlv="${esc(w.id)}" value="${esc(show)}" aria-label="Delivery date for ${esc(w.woNo)}" title="${set?"Delivery date set by the team. Clear it to go back to the forecast.":"Forecast date. Change it to set a delivery date."}">`:`<b>${dlvFmt(show)}</b>`;
+  return `<div class="dlv ${late?"late":""}" title="${tip}"><span class="lbl">${set?"Delivery":"Est. delivery"}</span>${val}${!set&&f.rough?` <span>(rough)</span>`:""}${behind?`<div class="behind">Forecast ${dlvFmt(f.deliver)}: behind this date</div>`:""}</div>`}
+async function setDelivery(id,v){
+  const w=S.wos.find(x=>x.id===id);if(!w)return;const f=forecast().by[id];
+  const val=v&&v!==f?.deliver?v:null; // picking the forecast date itself keeps it automatic
+  if((w.deliveryDate||null)===val)return;
+  try{await S.db.doc("workorders/"+id).update({deliveryDate:val,stageLog:[...(w.stageLog||[]),{s:w.stage,at:new Date().toISOString(),by:S.uid,note:val?"delivery date set to "+dfmt(val):"delivery date back to forecast"}]});toast(val?`${w.woNo}: delivery ${dlvFmt(val)}`:`${w.woNo}: delivery follows the forecast`)}catch(err){dbErr(err)}
+}
+document.addEventListener("change",e=>{const t=e.target;if(t.matches&&t.matches("input[data-dlv]"))setDelivery(t.dataset.dlv,t.value)});
 function etaChip(w,f){
   if(!f||w.stage==="dispatched")return "";if(f.nolist)return "";
   if(w.stage==="ready")return `<span class="chip ok">Ready</span>`;
@@ -1280,7 +1295,7 @@ function vWO(){
   if(q)list=list.filter(w=>[w.woNo,w.client,w.project,w.site].join(" ").toLowerCase().includes(q));
   list.sort((a,b)=>String(a.dueDate).localeCompare(String(b.dueDate)));
   const seg=["open","dispatched","all","closed"].map(f=>`<button aria-pressed="${S.woFilter===f}" data-wof="${f}">${f[0].toUpperCase()+f.slice(1)}</button>`).join("");
-  const rows=list.map(w=>`<tr class="click" data-wo="${esc(w.id)}"><td class="mono">${esc(w.woNo)}${w.sample?' <span class="chip sample">SAMPLE</span>':""}</td><td><b>${esc(w.client)}</b><div class="note">${esc(w.project||"")}</div></td><td>${STAGE_N[w.stage]}</td><td>${dueChip(w)}</td><td>${w.stage==="dispatched"?"—":fcw[w.id]?`<span style="white-space:nowrap;${w.dueDate&&fcw[w.id].deliver>w.dueDate?"color:var(--bad)":""}">${dlvFmt(fcw[w.id].deliver)}</span>${fcw[w.id].rough?'<div class="note">rough</div>':""}`:""}</td><td class="num">${fmt(w.area,1)}</td><td class="num">${fmt(w.kg)}</td><td>${matChip(w,oh)}</td></tr>`).join("");
+  const rows=list.map(w=>`<tr class="click" data-wo="${esc(w.id)}"><td class="mono">${esc(w.woNo)}${w.sample?' <span class="chip sample">SAMPLE</span>':""}</td><td><b>${esc(w.client)}</b><div class="note">${esc(w.project||"")}</div></td><td>${STAGE_N[w.stage]}</td><td>${dueChip(w)}</td><td>${w.stage==="dispatched"?"—":fcw[w.id]?(d=>`<span style="white-space:nowrap;${w.dueDate&&d>w.dueDate?"color:var(--bad)":""}">${dlvFmt(d)}</span>${w.deliveryDate?'<div class="note">set</div>':fcw[w.id].rough?'<div class="note">rough</div>':""}`)(w.deliveryDate||fcw[w.id].deliver):""}</td><td class="num">${fmt(w.area,1)}</td><td class="num">${fmt(w.kg)}</td><td>${matChip(w,oh)}</td></tr>`).join("");
   return `<div class="bar"><h2>Work orders</h2><div class="seg">${seg}</div><input id="woq" placeholder="Search WO, client, project" value="${esc(S.q)}" style="max-width:260px"><div class="sp"></div><button class="btn pri" data-act="new-wo" ${S.canWrite?"":"disabled"}>New work order</button></div>
   <div class="panel tscroll">${rows?`<table><thead><tr><th>WO</th><th>Client / project</th><th>Stage</th><th>Due</th><th>Est. delivery</th><th class="num">Area m²</th><th class="num">GI kg</th><th>Material</th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><h3>No work orders here</h3><p>Create a work order from the client's duct schedule. Area, GI weight and the bill of materials calculate as you enter sizes.</p></div>`}</div>`;
 }
@@ -1439,7 +1454,7 @@ function woDetail(id){
   const log=(w.stageLog||[]).slice().reverse().map(l=>`<div class="note">${dtfmt(l.at)} · ${esc(STAGE_N[l.s]||l.s)}${l.by?" · "+esc(nm(l.by)):""}${l.note?" · "+esc(l.note):""}</div>`).join("");
   const canEdit=S.canWrite&&w.stage==="planned"&&!w.materialIssued;
   modal(head(`${esc(w.woNo)} <span class="muted" style="font-weight:500">· ${esc(w.client)}</span>`)+`<div class="mb">
-   <div class="bar">${w.sample?'<span class="chip sample">SAMPLE</span>':""}${w.priority==="urgent"?'<span class="chip warn">Urgent</span>':""}${dueChip(w)}${matChip(w,oh)}${(()=>{const f=forecast().by[w.id];return f&&w.stage!=="dispatched"?`<span class="chip ${w.dueDate&&f.deliver>w.dueDate?"bad":"ok"}" title="${f.rough?"Rough: no part list yet":"Forecast at current shop capacity"}">Est. delivery ${dlvFmt(f.deliver)}${f.rough?" (rough)":""}</span>`:""})()}<span class="note">${esc([w.project,w.site].filter(Boolean).join(" · "))}</span></div>
+   <div class="bar">${w.sample?'<span class="chip sample">SAMPLE</span>':""}${w.priority==="urgent"?'<span class="chip warn">Urgent</span>':""}${dueChip(w)}${matChip(w,oh)}${(()=>{const f=forecast().by[w.id];const d=w.deliveryDate||f?.deliver;return f&&w.stage!=="dispatched"?`<span class="chip ${w.dueDate&&d>w.dueDate?"bad":"ok"}" title="Forecast ${dlvFmt(f.deliver)}${f.rough?" (rough)":""}">${w.deliveryDate?"Delivery "+dlvFmt(d):"Est. delivery "+dlvFmt(d)+(f.rough?" (rough)":"")}</span>`:""})()}<span class="note">${esc([w.project,w.site].filter(Boolean).join(" · "))}</span></div>
    ${w.clientPO||w.clientStatus||w.source?.url?`<div class="note">${w.clientStatus?esc(w.clientStatus):""}${w.clientPO?` · Client PO <b class="mono">${esc(w.clientPO)}</b>`:""}${w.source?.url?` · <a href="${esc(w.source.url)}" target="_blank" rel="noopener">Open email thread</a>`:""}</div>`:""}
    <div class="stages">${stg}</div>
    <div class="totals"><span><b>${fmt(w.area,2)}</b>m²</span><span><b>${fmt(w.kg)}</b>kg GI net</span><span><b>${(w.items||[]).reduce((s,i)=>s+(+i.qty||0),0)}</b>pieces</span>${w.insulated?"<span><b>Yes</b>insulated</span>":""}</div>
@@ -1662,6 +1677,7 @@ function dispDetail(id){
 /* ===== actions ===== */
 document.addEventListener("click",e=>{
   const dd=e.target.closest("[data-disp]");if(dd){e.stopPropagation();return dispDetail(dd.dataset.disp)}
+  if(e.target.closest("input[data-dlv]"))return;
   const t=e.target.closest("[data-act],[data-wo],[data-move],[data-listgiven],[data-listundo],[data-dupwo],[data-dupok],[data-reopen],[data-issue],[data-mat],[data-recv],[data-adj],[data-postmv],[data-editmat],[data-editwo],[data-delwo],[data-dispatch],[data-po],[data-pldel],[data-pocancel]");if(!t)return;
   if(t.dataset.move){e.stopPropagation();return move(t.dataset.id,+t.dataset.move)}
   if(t.dataset.dupwo){e.stopPropagation();return dupForm(t.dataset.dupwo)}
