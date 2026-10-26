@@ -2333,7 +2333,11 @@ document.addEventListener("change",async e=>{
 /* ===== boot ===== */
 renderTabs();
 (async()=>{
-  const db=await claude.use("db");
+  const LIVE="https://claude.ai/artifact/4pAvPiWHFGwUtcT8miYPR6";
+  const offline=(h,m)=>{$("#main").innerHTML=`<div class="panel empty"><h3>${h}</h3><p>${m}</p><div class="bar" style="justify-content:center"><a class="btn pri" href="${LIVE}" target="_top" rel="noopener">Open Factory OS on claude.ai</a></div></div>`};
+  if(typeof window.claude==="undefined"||!window.claude?.use){offline("This is a copy of Factory OS","The live app, with your stock, work orders and dispatches, runs on claude.ai. This copy has no database connected.");return}
+  const slow=setTimeout(()=>offline("Still connecting to the factory database…","Check your connection and reload the page. If it keeps happening, open the app from claude.ai."),20000);
+  const db=await claude.use("db").finally(()=>clearTimeout(slow));
   if(!db){$("#main").innerHTML=`<div class="panel empty"><h3>Sign in to use Factory OS</h3><p>This page keeps work orders and stock in a shared database. Open it while signed in to claude.ai with access to this artifact.</p></div>`;return}
   S.db=db;
   const user=await claude.use("user");S.user=user;
