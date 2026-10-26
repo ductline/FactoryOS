@@ -1244,19 +1244,27 @@ function etaChip(w,f){
 function card(w,oh,f){
   const late=w.stage!=="dispatched"&&daysTo(w.dueDate)<0;const i=STAGES.findIndex(s=>s[0]===w.stage);
   return `<div class="card ${late?"late":w.priority==="urgent"?"urgent":""}" data-wo="${esc(w.id)}" tabindex="0">
-   <div class="r1"><span class="wo">${esc(w.woNo)}</span>${w.sample?`<span class="chip sample">SAMPLE</span>`:w.priority==="urgent"?`<span class="chip warn">Urgent</span>`:""}</div>
+   <div class="r1"><span class="wo">${esc(w.woNo)}</span><span style="display:flex;gap:4px;align-items:center">${w.sample?`<span class="chip sample">SAMPLE</span>`:w.priority==="urgent"?`<span class="chip warn">Urgent</span>`:""}${S.canWrite&&w.stage!=="dispatched"?`<button class="x" data-dupwo="${esc(w.id)}" title="Close as duplicate" aria-label="Close ${esc(w.woNo)} as duplicate" style="font-size:18px;padding:0 4px">×</button>`:""}</span></div>
    <div class="cl">${esc(w.client)}</div>${w.project?`<div class="note">${esc(w.project)}</div>`:""}
    <div class="meta"><span class="mono">${fmt(w.area,1)} m² · ${fmt(w.kg)} kg</span>${w.insulated?"<span>· insulated</span>":""}</div>
    <div class="meta">${dueChip(w)}${etaChip(w,f)}${matChip(w,oh)}</div>
    ${S.canWrite?`<div class="mv">${needsList(w)?`<button class="btn sm" data-listgiven="${esc(w.id)}" title="Part list received from the client or drawing office">Mark part list given</button>`:""}${i>0&&w.stage!=="dispatched"?`<button class="btn sm" data-move="-1" data-id="${esc(w.id)}" aria-label="Move back">‹</button>`:""}${i<STAGES.length-1?`<button class="btn sm ${w.stage==="planned"?"":"pri"}" data-move="1" data-id="${esc(w.id)}">${w.stage==="ready"?"Dispatch":"Next ›"}</button>`:""}</div>`:""}
   </div>`;
 }
+function vClosed(){
+  const seg=["open","dispatched","all","closed"].map(f=>`<button aria-pressed="${S.woFilter===f}" data-wof="${f}">${f[0].toUpperCase()+f.slice(1)}</button>`).join("");
+  const list=(S.closedWos||[]).slice().sort((a,b)=>String(b.closed.at).localeCompare(String(a.closed.at)));
+  const rows=list.map(w=>`<tr><td class="mono">${esc(w.woNo)}</td><td><b>${esc(w.client)}</b><div class="note">${esc(w.project||"")}</div></td><td>${w.closed.reason==="duplicate"?"Duplicate":esc(w.closed.reason||"Closed")}${w.closed.of?` of <span class="mono">${esc(w.closed.of.woNo)}</span>`:""}${w.closed.note?`<div class="note">${esc(w.closed.note)}</div>`:""}</td><td>${dtfmt(w.closed.at)}${w.closed.by?`<div class="note">${esc(nm(w.closed.by))}</div>`:""}</td><td>${S.canWrite?`<button class="btn sm" data-reopen="${esc(w.id)}">Reopen</button>`:""}</td></tr>`).join("");
+  return `<div class="bar"><h2>Work orders</h2><div class="seg">${seg}</div></div>
+  <div class="panel tscroll">${rows?`<table><thead><tr><th>WO</th><th>Client / project</th><th>Closed as</th><th>When</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><h3>No closed cards</h3><p>Cards closed as duplicates show here and can be reopened.</p></div>`}</div>`;
+}
 function vWO(){
   const q=S.q.toLowerCase();const oh=onHand();
+  if(S.woFilter==="closed")return vClosed();
   let list=S.wos.filter(w=>S.woFilter==="all"||(S.woFilter==="open"?w.stage!=="dispatched":w.stage==="dispatched"));
   if(q)list=list.filter(w=>[w.woNo,w.client,w.project,w.site].join(" ").toLowerCase().includes(q));
   list.sort((a,b)=>String(a.dueDate).localeCompare(String(b.dueDate)));
-  const seg=["open","dispatched","all"].map(f=>`<button aria-pressed="${S.woFilter===f}" data-wof="${f}">${f[0].toUpperCase()+f.slice(1)}</button>`).join("");
+  const seg=["open","dispatched","all","closed"].map(f=>`<button aria-pressed="${S.woFilter===f}" data-wof="${f}">${f[0].toUpperCase()+f.slice(1)}</button>`).join("");
   const rows=list.map(w=>`<tr class="click" data-wo="${esc(w.id)}"><td class="mono">${esc(w.woNo)}${w.sample?' <span class="chip sample">SAMPLE</span>':""}</td><td><b>${esc(w.client)}</b><div class="note">${esc(w.project||"")}</div></td><td>${STAGE_N[w.stage]}</td><td>${dueChip(w)}</td><td class="num">${fmt(w.area,1)}</td><td class="num">${fmt(w.kg)}</td><td>${matChip(w,oh)}</td></tr>`).join("");
   return `<div class="bar"><h2>Work orders</h2><div class="seg">${seg}</div><input id="woq" placeholder="Search WO, client, project" value="${esc(S.q)}" style="max-width:260px"><div class="sp"></div><button class="btn pri" data-act="new-wo" ${S.canWrite?"":"disabled"}>New work order</button></div>
   <div class="panel tscroll">${rows?`<table><thead><tr><th>WO</th><th>Client / project</th><th>Stage</th><th>Due</th><th class="num">Area m²</th><th class="num">GI kg</th><th>Material</th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><h3>No work orders here</h3><p>Create a work order from the client's duct schedule. Area, GI weight and the bill of materials calculate as you enter sizes.</p></div>`}</div>`;
@@ -1429,7 +1437,7 @@ function woDetail(id){
    ${w.notes?`<div><p class="sec">Notes</p><p style="margin:0">${esc(w.notes)}</p></div>`:""}
    ${(()=>{const j=S.tagjobs.find(x=>x.woId===w.id||x.id===w.source?.tagJob);return j?.pack?`<div class="bar"><button class="btn pri" data-tjview="${esc(j.id)}">View tagged drawing</button><button class="btn" data-tjpdf="${esc(j.id)}">Drawing PDF</button><span class="note">${esc(j.file)}</span></div>`:""})()}
    <div><p class="sec">History</p>${log}</div>
-  </div><div class="mf">${S.canWrite&&!w.materialIssued&&w.stage==="planned"?`<button class="btn danger" data-delwo="${esc(w.id)}">Delete</button>`:""}<span style="flex:1"></span>${canEdit?`<button class="btn" data-editwo="${esc(w.id)}">Edit</button>`:""}${S.canWrite&&si>0&&w.stage!=="dispatched"?`<button class="btn" data-move="-1" data-id="${esc(w.id)}">‹ Back</button>`:""}${S.canWrite&&si<STAGES.length-1?`<button class="btn pri" data-move="1" data-id="${esc(w.id)}">${w.stage==="ready"?"Dispatch":"Move to "+esc(STAGE_N[nextStage(w,1)])}</button>`:""}</div>`);
+  </div><div class="mf">${S.canWrite&&!w.materialIssued&&w.stage==="planned"?`<button class="btn danger" data-delwo="${esc(w.id)}">Delete</button>`:""}${S.canWrite&&w.stage!=="dispatched"?`<button class="btn" data-dupwo="${esc(w.id)}">Close as duplicate</button>`:""}<span style="flex:1"></span>${canEdit?`<button class="btn" data-editwo="${esc(w.id)}">Edit</button>`:""}${S.canWrite&&si>0&&w.stage!=="dispatched"?`<button class="btn" data-move="-1" data-id="${esc(w.id)}">‹ Back</button>`:""}${S.canWrite&&si<STAGES.length-1?`<button class="btn pri" data-move="1" data-id="${esc(w.id)}">${w.stage==="ready"?"Dispatch":"Move to "+esc(STAGE_N[nextStage(w,1)])}</button>`:""}</div>`);
 }
 function nextStage(w,dir){let i=STAGES.findIndex(s=>s[0]===w.stage)+dir;if(STAGES[i]?.[0]==="insulation"&&!w.insulated)i+=dir;return STAGES[Math.max(0,Math.min(STAGES.length-1,i))][0]}
 async function move(id,dir){
@@ -1446,6 +1454,28 @@ function dispatchForm(w){
 async function doDispatch(id){
   const w=S.wos.find(x=>x.id===id);const at=new Date().toISOString();
   try{await S.db.doc("workorders/"+id).update({stage:"dispatched",dispatch:{vehicle:$("#d-veh").value.trim(),dc:$("#d-dc").value.trim(),note:$("#d-note").value.trim(),at,by:S.uid},stageLog:[...(w.stageLog||[]),{s:"dispatched",at,by:S.uid}]});closeM();toast(w.woNo+" dispatched")}catch(err){dbErr(err)}
+}
+/* duplicate cards: closed, kept for the record, out of the floor, planning and dispatch matching */
+function dupForm(id){
+  const w=S.wos.find(x=>x.id===id);if(!w)return;
+  const ck=x=>String(x||"").toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,6);
+  const others=S.wos.filter(x=>x.id!==id).sort((a,b)=>(ck(b.client)===ck(w.client))-(ck(a.client)===ck(w.client))||String(a.woNo).localeCompare(String(b.woNo)));
+  modal(head("Close "+esc(w.woNo)+" as duplicate")+`<div class="mb">
+    <p class="note"><b>${esc(w.client)}</b>${w.project?" · "+esc(w.project):""}</p>
+    <label class="f">Duplicate of<select id="dup-of"><option value="">Not sure / not listed</option>${others.map(x=>`<option value="${esc(x.id)}">${esc(x.woNo)} · ${esc(x.client)}${x.project?" · "+esc(String(x.project).slice(0,50)):""}</option>`).join("")}</select></label>
+    <label class="f">Note (optional)<input id="dup-note" placeholder="e.g. same email imported twice"></label>
+    <p class="note">The card leaves the Floor board, Work orders and Material planning. Any reserved material is released. It stays under Work orders → Closed and can be reopened.</p></div>
+    <div class="mf"><button class="btn" data-close>Cancel</button><button class="btn danger" data-dupok="${esc(w.id)}">Close card</button></div>`,true);
+}
+async function closeDup(id){
+  const w=S.wos.find(x=>x.id===id);if(!w)return;const of=S.wos.find(x=>x.id===$("#dup-of")?.value);
+  try{await S.db.doc("workorders/"+id).update({closed:{reason:"duplicate",of:of?{id:of.id,woNo:of.woNo}:null,note:$("#dup-note")?.value.trim()||"",at:new Date().toISOString(),by:S.uid},
+      stageLog:[...(w.stageLog||[]),{s:w.stage,at:new Date().toISOString(),by:S.uid,note:"closed as duplicate"+(of?" of "+of.woNo:"")}]});
+    closeM();toast(w.woNo+" closed as duplicate")}catch(err){dbErr(err)}
+}
+async function reopenWo(id){
+  const w=(S.closedWos||[]).find(x=>x.id===id);if(!w)return;
+  try{await S.db.doc("workorders/"+id).update({closed:null,stageLog:[...(w.stageLog||[]),{s:w.stage,at:new Date().toISOString(),by:S.uid,note:"reopened"}]});toast(w.woNo+" reopened")}catch(err){dbErr(err)}
 }
 async function setListGiven(id,on){
   const w=S.wos.find(x=>x.id===id);if(!w||!S.canWrite)return;
@@ -1617,8 +1647,11 @@ function dispDetail(id){
 /* ===== actions ===== */
 document.addEventListener("click",e=>{
   const dd=e.target.closest("[data-disp]");if(dd){e.stopPropagation();return dispDetail(dd.dataset.disp)}
-  const t=e.target.closest("[data-act],[data-wo],[data-move],[data-listgiven],[data-listundo],[data-issue],[data-mat],[data-recv],[data-adj],[data-postmv],[data-editmat],[data-editwo],[data-delwo],[data-dispatch],[data-po],[data-pldel],[data-pocancel]");if(!t)return;
+  const t=e.target.closest("[data-act],[data-wo],[data-move],[data-listgiven],[data-listundo],[data-dupwo],[data-dupok],[data-reopen],[data-issue],[data-mat],[data-recv],[data-adj],[data-postmv],[data-editmat],[data-editwo],[data-delwo],[data-dispatch],[data-po],[data-pldel],[data-pocancel]");if(!t)return;
   if(t.dataset.move){e.stopPropagation();return move(t.dataset.id,+t.dataset.move)}
+  if(t.dataset.dupwo){e.stopPropagation();return dupForm(t.dataset.dupwo)}
+  if(t.dataset.dupok){e.stopPropagation();return closeDup(t.dataset.dupok)}
+  if(t.dataset.reopen){e.stopPropagation();return reopenWo(t.dataset.reopen)}
   if(t.dataset.listgiven){e.stopPropagation();return setListGiven(t.dataset.listgiven,true)}
   if(t.dataset.listundo){e.stopPropagation();return setListGiven(t.dataset.listundo,false)}
   if(t.dataset.recv){e.stopPropagation();return moveForm(t.dataset.recv,"receipt")}
@@ -2356,7 +2389,7 @@ renderTabs();
   const resolveNames=async ids=>{if(!user)return;const need=[...new Set(ids.filter(i=>i&&!S.names[i]))];if(!need.length)return;try{const ps=await user.profiles(need);for(const i of need)S.names[i]=ps?.[i]?.name||"Someone"}catch(e){}};
   db.collection("materials").onSnapshot(s=>{S.materials={};s.docs.forEach(d=>{S.materials[d.id]={code:d.id,...d.data()}});S.loaded.m=1;render()},fail);
   db.collection("movements").onSnapshot(s=>{S.moves=s.docs.map(d=>({id:d.id,...d.data()}));S.loaded.v=1;resolveNames(S.moves.map(v=>v.by)).then(render);render()},fail);
-  db.collection("workorders").onSnapshot(s=>{S.wos=s.docs.map(d=>({id:d.id,...d.data()}));S.loaded.w=1;resolveNames(S.wos.flatMap(w=>[...(w.stageLog||[]).map(l=>l.by),w.issuedBy])).then(render);render()},fail);
+  db.collection("workorders").onSnapshot(s=>{const all=s.docs.map(d=>({id:d.id,...d.data()}));S.wos=all.filter(w=>!w.closed);S.closedWos=all.filter(w=>w.closed);S.loaded.w=1;resolveNames(S.wos.flatMap(w=>[...(w.stageLog||[]).map(l=>l.by),w.issuedBy])).then(render);render()},fail);
   db.collection("pos").onSnapshot(s=>{S.pos=s.docs.map(d=>({id:d.id,...d.data()}));S.loaded.p=1;render()},fail);
   db.collection("tagjobs").onSnapshot(s=>{S.tagjobs=s.docs.map(d=>({id:d.id,...d.data()}));render()},e=>console.error(e));
   db.collection("dispatches").onSnapshot(s=>{S.dispatches=s.docs.map(d=>({id:d.id,...d.data()}));render()},e=>console.error(e));
