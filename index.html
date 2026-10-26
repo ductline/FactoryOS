@@ -1,3 +1,11 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="ductline-mark.png">
+<script src="firebase-config.js"></script>
+<script src="fb-shim.js"></script>
 <title>Ductline Factory OS</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -143,6 +151,8 @@ body.dragging *{cursor:grabbing!important}
 .board.big .colh h3{font-size:18px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
+</head>
+<body>
 
 <header class="top">
   <div class="wrap">
@@ -2354,3 +2364,6 @@ renderTabs();
   db.collection("config").onSnapshot(s=>{const d=s.docs.find(x=>x.id==="zoho-sync");S.sync=d?d.data():null;const cp=s.docs.find(x=>x.id==="capacity");S.cap=cp?cp.data():null;if(S.tab==="dispatch"||S.tab==="floor"){render.force=true;render()}},e=>console.error(e));
 })();
 </script>
+
+</body>
+</html>

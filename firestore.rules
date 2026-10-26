@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function email() { return request.auth.token.email.lower(); }
+    function owner() { return signedIn() && email() == 'nagredy@gmail.com'; }
+    function access() { return get(/databases/$(database)/documents/access/$(email())).data; }
+    function member() { return owner() || (signedIn() && exists(/databases/$(database)/documents/access/$(email()))); }
+    function writer() { return owner() || (member() && access().role != 'view'); }
+
+    // Who can sign in: only the owner manages this list.
+    match /access/{who} {
+      allow read: if owner() || (signedIn() && email() == who);
+      allow write: if owner();
+    }
+    // Names shown on the floor board and stock history.
+    match /users/{uid} {
+      allow read: if member();
+      allow write: if signedIn() && request.auth.uid == uid;
+    }
+    // Factory data.
+    match /{col}/{id} {
+      allow read: if member() && col in ['materials','movements','workorders','pos','tagjobs','dispatches','config'];
+      allow write: if writer() && col in ['materials','movements','workorders','pos','tagjobs','dispatches','config'];
+    }
+  }
+}

@@ -2,9 +2,17 @@
 
 Production planning, stock, dispatch and drawing tagging for Ductline Manufacturing, Hyderabad.
 
-- **Live app:** published as a claude.ai artifact (private). It gets its data, file storage and Claude reading from the claude.ai runtime (`window.claude`), so opening `index.html` outside claude.ai shows an empty app.
-- **index.html** is the whole app: Floor (scrum board + capacity forecast), Drawings (DWG/DXF tagging, requirement sheets read by Claude), Work orders, Stock, Dispatches (from Zoho invoices), Material planning, Purchase (coils by gauge).
-- **libredwg-web.wasm, dwg/**: DWG reader used in the browser.
-- **tests/**: Playwright scripts used during development (they expect a local test harness with a mock `window.claude`).
+## Files
+- `app.html`: the app exactly as published on claude.ai (source of truth).
+- `index.html`: the GitHub Pages build. It is `app.html` plus Firebase sign-in and database (`python3 build.py` rebuilds it).
+- `fb-shim.js`: connects the app to Firebase (Firestore + Google sign-in) when it runs outside claude.ai.
+- `firebase-config.js`: the Firebase project's web settings.
+- `firestore.rules`: database security rules (paste into Firebase console > Firestore > Rules).
+- `libredwg-web.wasm`, `dwg/`: DWG reader used in the browser.
+- `tests/`: Playwright scripts used during development.
 
-Zoho dispatch sync runs as a scheduled task every two hours (7:32–21:32 IST) and writes invoices into the app's `dispatches` collection.
+## Access
+Nag (nagredy@gmail.com) is the owner. Staff sign in with Google; the owner adds their emails under **Team access** at the bottom of the page (Can edit / View only).
+
+## Not available on the GitHub version
+- Reading requirement sheets (PDF/photo) with Claude, and keeping uploaded drawings for later viewing: these use claude.ai services. DWG/DXF tagging, Excel part lists and work orders work.
