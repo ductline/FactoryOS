@@ -20,8 +20,8 @@ service cloud.firestore {
     }
     // Factory data.
     match /{col}/{id} {
-      allow read: if member() && col in ['materials','movements','workorders','pos','tagjobs','dispatches','config'];
-      allow write: if writer() && col in ['materials','movements','workorders','pos','tagjobs','dispatches','config'];
+      allow read: if member() && col in ['materials','movements','workorders','pos','tagjobs','dispatches','sales','config'];
+      allow write: if writer() && col in ['materials','movements','workorders','pos','tagjobs','dispatches','sales','config'];
     }
   }
 }

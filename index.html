@@ -1060,8 +1060,8 @@ function calcWO(items,insulated){
 }
 
 /* ===== state ===== */
-const S={db:null,user:null,uid:null,canWrite:true,materials:{},moves:[],wos:[],pos:[],tagjobs:[],dispatches:[],sync:null,loaded:{m:0,v:0,w:0,p:0},tab:"floor",woFilter:"open",q:"",names:{}};
-const TABS=[["floor","Floor"],["draw","Drawings"],["wo","Work orders"],["stock","Stock"],["dispatch","Dispatches"],["plan","Material planning"],["po","Purchase"]];
+const S={db:null,user:null,uid:null,canWrite:true,materials:{},moves:[],wos:[],pos:[],tagjobs:[],dispatches:[],sales:[],sumMonth:null,sync:null,loaded:{m:0,v:0,w:0,p:0},tab:"floor",woFilter:"open",q:"",names:{}};
+const TABS=[["summary","Summary"],["floor","Floor"],["draw","Drawings"],["wo","Work orders"],["stock","Stock"],["dispatch","Dispatches"],["plan","Material planning"],["po","Purchase"]];
 try{const t=localStorage.getItem("dl-tab");if(t&&TABS.some(x=>x[0]===t))S.tab=t}catch(e){}
 try{S.meeting=localStorage.getItem("dl-meeting")==="1"}catch(e){}
 if(location.hash&&TABS.some(x=>x[0]===location.hash.slice(1)))S.tab=location.hash.slice(1);
@@ -1115,9 +1115,9 @@ function render(){
   if(!ready)return;
   if(S.tab==="draw"&&$("#draw-root")&&!render.force){drawLists();return}
   render.force=false;
-  const v={floor:vFloor,draw:vDraw,wo:vWO,stock:vStock,dispatch:vDispatch,plan:vPlan,po:vPO}[S.tab]();
+  const v={summary:vSummary,floor:vFloor,draw:vDraw,wo:vWO,stock:vStock,dispatch:vDispatch,plan:vPlan,po:vPO}[S.tab]();
   const ro=S.canWrite?"":`<div class="banner">You have view-only access. Ask the owner for Contributor access to update work orders and stock.</div>`;
-  $("#main").innerHTML=ro+(S.tab==="draw"||(S.tab==="floor"&&S.meeting)?"":kpis())+v;
+  $("#main").innerHTML=ro+(S.tab==="draw"||S.tab==="summary"||(S.tab==="floor"&&S.meeting)?"":kpis())+v;
   if(S.tab==="draw")drawMounted();
   $("#foot").innerHTML=`<span>Gauge by largest side: ≤750 mm 24G · ≤1500 22G · ≤2100 20G · above 18G. Sheet wastage ${NORMS.sheetWaste*100}%.</span>`+
    (S.canWrite&&hasSample()?`<span>·</span><button class="link" data-act="clear-sample">Clear sample data</button>`:"")+
@@ -1334,6 +1334,49 @@ function planGroup(m){const t=(m.code+" "+m.name).toUpperCase();
   if(/\bBOLT|\bNUT\b|\bNUTS\b|WASHER/.test(t))return 1;
   if(/^GSK|^INS|GASKET|INSUL/.test(t))return 2;return 3}
 function planKey(m){const g=m.code.match(/^GI-(\d\d)(-FO)?$/);return g?`A${g[2]?1:0}-${g[1]}`:/^GSK|GASKET/i.test(m.code+m.name)?`B-${m.name}`:`C-${m.name}`}
+/* ===== Summary: orders (m²) and sales (Zoho invoices) for a month ===== */
+const lakh=n=>{n=+n||0;return n>=1e7?"₹"+fmt(n/1e7,2)+" Cr":n>=1e5?"₹"+fmt(n/1e5,2)+" L":inr(n)};
+const istMonth=s=>s?new Date(s).toLocaleDateString("en-CA",{timeZone:"Asia/Kolkata"}).slice(0,7):"";
+function monthShift(m,d){const [y,mo]=m.split("-").map(Number);const t=new Date(y,mo-1+d,1);return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}`}
+function vSummary(){
+  const now=istToday(),cur=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;const m=S.sumMonth||cur;
+  const mName=new Date(m+"-01T00:00").toLocaleDateString("en-IN",{month:"long",year:"numeric"});
+  // orders received: work orders created this month (closed duplicates are left out)
+  const wos=S.wos.filter(w=>istMonth(w.createdAt)===m);
+  const area=wos.reduce((a,w)=>a+(+w.area||0),0),kg=wos.reduce((a,w)=>a+(+w.kg||0),0),noList=wos.filter(w=>!(+w.area>0)).length;
+  const dispArea=wos.filter(w=>w.stage==="dispatched").reduce((a,w)=>a+(+w.area||0),0);
+  // sales: Zoho invoices dated this month (drafts and voids left out)
+  const inv=S.sales.filter(x=>String(x.date).slice(0,7)===m);
+  const live=inv.filter(x=>x.status!=="void"&&x.status!=="draft"),drafts=inv.filter(x=>x.status==="draft");
+  const billed=live.reduce((a,x)=>a+(+x.total||0),0),due=live.reduce((a,x)=>a+(+x.balance||0),0);
+  // m² on invoices (from e-way bill sync lines)
+  const dl=S.dispatches.filter(d=>String(d.date).slice(0,7)===m&&!d.void);
+  const sqm=dl.reduce((a,d)=>a+(d.lines||[]).filter(l=>/sq|m2|m²/i.test(l.unit||"")).reduce((b,l)=>b+(+l.qty||0),0),0);
+  const dlFrom=dl.length?dl.map(d=>d.date).sort()[0]:null;
+  const tile=(v,l,sub,cls="")=>`<div class="kpi ${cls}" style="cursor:default"><b>${v}</b><small>${l}</small>${sub?`<span class="note">${sub}</span>`:""}</div>`;
+  const grp=(list,key,val)=>{const g=new Map();list.forEach(x=>{const k=key(x)||"—";const o=g.get(k)||{k,n:0,v:0,v2:0};o.n++;o.v+=val(x);o.v2+=(+x.balance||0);g.set(k,o)});return [...g.values()].sort((a,b)=>b.v-a.v)};
+  const bar=(v,max)=>`<div style="height:6px;border-radius:3px;background:var(--sunk);margin-top:4px"><div style="height:6px;border-radius:3px;background:var(--fg);width:${max?Math.max(2,100*v/max):0}%"></div></div>`;
+  const oc=grp(wos,w=>w.client,w=>+w.area||0),sc=grp(live,x=>x.customer,x=>+x.total||0);
+  const oRows=oc.map(o=>`<tr><td><b>${esc(o.k)}</b>${bar(o.v,oc[0]?.v)}</td><td class="num">${o.n}</td><td class="num">${o.v?fmt(o.v,1):"—"}</td></tr>`).join("");
+  const sRows=sc.map(o=>`<tr><td><b>${esc(o.k)}</b>${bar(o.v,sc[0]?.v)}</td><td class="num">${o.n}</td><td class="num">${inr(o.v)}</td><td class="num">${o.v2>0.5?inr(o.v2):"—"}</td></tr>`).join("");
+  const days=m===cur?now.getDate():new Date(+m.slice(0,4),+m.slice(5,7),0).getDate();
+  return `<div class="bar"><h2>Summary</h2><div class="seg"><button data-sm="-1" aria-label="Previous month">‹</button><button aria-pressed="true" style="min-width:140px">${mName}</button><button data-sm="1" aria-label="Next month" ${m>=cur?"disabled":""}>›</button></div>${m!==cur?`<button class="btn sm" data-sm="0">This month</button>`:""}</div>
+  <section class="kpis">
+    ${tile(fmt(area,0)+" m²","Orders received",`${wos.length} work order${wos.length===1?"":"s"}${noList?` · ${noList} without part list yet`:""}`)}
+    ${tile(fmt(kg/1000,1)+" t","GI in those orders",dispArea?`${fmt(dispArea,0)} m² already dispatched`:"")}
+    ${tile(lakh(billed),"Sales invoiced",`${live.length} invoices, incl. GST${drafts.length?` · ${drafts.length} draft${drafts.length>1?"s":""} not counted`:""}`)}
+    ${tile(lakh(billed-due),"Collected",billed?`${fmt(100*(billed-due)/billed,0)}% of invoiced`:"")}
+    ${tile(lakh(due),"Outstanding",`from ${live.filter(x=>+x.balance>0.5).length} invoices`,due>0?"warnk":"")}
+    ${tile(lakh(billed/(days||1)),"Sales per day",`average over ${days} day${days===1?"":"s"}`)}
+  </section>
+  <div class="dgrid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))">
+    <div class="panel tscroll"><table><thead><tr><th>Orders by client</th><th class="num">WOs</th><th class="num">m²</th></tr></thead><tbody>${oRows||`<tr><td colspan="3" class="muted">No work orders created in ${esc(mName)}</td></tr>`}</tbody>${oRows?`<tfoot><tr><td><b>Total</b></td><td class="num"><b>${wos.length}</b></td><td class="num"><b>${fmt(area,1)}</b></td></tr></tfoot>`:""}</table></div>
+    <div class="panel tscroll"><table><thead><tr><th>Sales by customer</th><th class="num">Invoices</th><th class="num">Invoiced</th><th class="num">Outstanding</th></tr></thead><tbody>${sRows||`<tr><td colspan="4" class="muted">No invoices in ${esc(mName)} yet</td></tr>`}</tbody>${sRows?`<tfoot><tr><td><b>Total</b></td><td class="num"><b>${live.length}</b></td><td class="num"><b>${inr(billed)}</b></td><td class="num"><b>${inr(due)}</b></td></tr></tfoot>`:""}</table></div>
+  </div>
+  <p class="note">Orders are work orders created in the month; m² comes from their part lists, so jobs without one count as 0 until it is imported. Sales are Zoho invoices dated in the month, including GST, refreshed by the Zoho sync every 2 hours (7:30 am–9:30 pm).${sqm?` Invoice lines on e-way bills${dlFrom?` from ${dfmt(dlFrom)}`:""} total ${fmt(sqm,0)} m².`:""}</p>`;
+}
+document.addEventListener("click",e=>{const b=e.target.closest("[data-sm]");if(!b)return;const now=istToday(),cur=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  S.sumMonth=b.dataset.sm==="0"?null:monthShift(S.sumMonth||cur,+b.dataset.sm);if(S.sumMonth>=cur)S.sumMonth=null;render()});
 function vPlan(){
   if(!Object.keys(S.materials).length)return setupEmpty();
   const rows=planRows();const buy=rows.filter(r=>r.sug>0);const oh=onHand();
@@ -2433,6 +2476,7 @@ renderTabs();
   db.collection("workorders").onSnapshot(s=>{const all=s.docs.map(d=>({id:d.id,...d.data()}));S.wos=all.filter(w=>!w.closed);S.closedWos=all.filter(w=>w.closed);S.loaded.w=1;resolveNames(S.wos.flatMap(w=>[...(w.stageLog||[]).map(l=>l.by),w.issuedBy])).then(render);render()},fail);
   db.collection("pos").onSnapshot(s=>{S.pos=s.docs.map(d=>({id:d.id,...d.data()}));S.loaded.p=1;render()},fail);
   db.collection("tagjobs").onSnapshot(s=>{S.tagjobs=s.docs.map(d=>({id:d.id,...d.data()}));render()},e=>console.error(e));
+  db.collection("sales").onSnapshot(s=>{S.sales=s.docs.map(d=>({id:d.id,...d.data()}));if(S.tab==="summary")render()},e=>console.error(e));
   db.collection("dispatches").onSnapshot(s=>{S.dispatches=s.docs.map(d=>({id:d.id,...d.data()}));render()},e=>console.error(e));
   db.collection("config").onSnapshot(s=>{const d=s.docs.find(x=>x.id==="zoho-sync");S.sync=d?d.data():null;const cp=s.docs.find(x=>x.id==="capacity");S.cap=cp?cp.data():null;if(S.tab==="dispatch"||S.tab==="floor"){render.force=true;render()}},e=>console.error(e));
 })();
