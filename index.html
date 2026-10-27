@@ -1341,39 +1341,16 @@ function monthShift(m,d){const [y,mo]=m.split("-").map(Number);const t=new Date(
 function vSummary(){
   const now=istToday(),cur=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;const m=S.sumMonth||cur;
   const mName=new Date(m+"-01T00:00").toLocaleDateString("en-IN",{month:"long",year:"numeric"});
-  // orders received: work orders created this month (closed duplicates are left out)
-  const wos=S.wos.filter(w=>istMonth(w.createdAt)===m);
-  const area=wos.reduce((a,w)=>a+(+w.area||0),0),kg=wos.reduce((a,w)=>a+(+w.kg||0),0),noList=wos.filter(w=>!(+w.area>0)).length;
-  const dispArea=wos.filter(w=>w.stage==="dispatched").reduce((a,w)=>a+(+w.area||0),0);
-  // sales: Zoho invoices dated this month (drafts and voids left out)
-  const inv=S.sales.filter(x=>String(x.date).slice(0,7)===m);
-  const live=inv.filter(x=>x.status!=="void"&&x.status!=="draft"),drafts=inv.filter(x=>x.status==="draft");
-  const billed=live.reduce((a,x)=>a+(+x.total||0),0),due=live.reduce((a,x)=>a+(+x.balance||0),0);
-  // m² on invoices (from e-way bill sync lines)
-  const dl=S.dispatches.filter(d=>String(d.date).slice(0,7)===m&&!d.void);
-  const sqm=dl.reduce((a,d)=>a+(d.lines||[]).filter(l=>/sq|m2|m²/i.test(l.unit||"")).reduce((b,l)=>b+(+l.qty||0),0),0);
-  const dlFrom=dl.length?dl.map(d=>d.date).sort()[0]:null;
-  const tile=(v,l,sub,cls="")=>`<div class="kpi ${cls}" style="cursor:default"><b>${v}</b><small>${l}</small>${sub?`<span class="note">${sub}</span>`:""}</div>`;
-  const grp=(list,key,val)=>{const g=new Map();list.forEach(x=>{const k=key(x)||"—";const o=g.get(k)||{k,n:0,v:0,v2:0};o.n++;o.v+=val(x);o.v2+=(+x.balance||0);g.set(k,o)});return [...g.values()].sort((a,b)=>b.v-a.v)};
-  const bar=(v,max)=>`<div style="height:6px;border-radius:3px;background:var(--sunk);margin-top:4px"><div style="height:6px;border-radius:3px;background:var(--fg);width:${max?Math.max(2,100*v/max):0}%"></div></div>`;
-  const oc=grp(wos,w=>w.client,w=>+w.area||0),sc=grp(live,x=>x.customer,x=>+x.total||0);
-  const oRows=oc.map(o=>`<tr><td><b>${esc(o.k)}</b>${bar(o.v,oc[0]?.v)}</td><td class="num">${o.n}</td><td class="num">${o.v?fmt(o.v,1):"—"}</td></tr>`).join("");
-  const sRows=sc.map(o=>`<tr><td><b>${esc(o.k)}</b>${bar(o.v,sc[0]?.v)}</td><td class="num">${o.n}</td><td class="num">${inr(o.v)}</td><td class="num">${o.v2>0.5?inr(o.v2):"—"}</td></tr>`).join("");
-  const days=m===cur?now.getDate():new Date(+m.slice(0,4),+m.slice(5,7),0).getDate();
+  // total m²: work orders created this month (closed duplicates left out)
+  const area=S.wos.filter(w=>istMonth(w.createdAt)===m).reduce((a,w)=>a+(+w.area||0),0);
+  // total sales: Zoho invoices dated this month, drafts and voids left out
+  const sales=S.sales.filter(x=>String(x.date).slice(0,7)===m&&x.status!=="void"&&x.status!=="draft").reduce((a,x)=>a+(+x.total||0),0);
+  const big=(v,l)=>`<div class="panel" style="padding:22px 24px;display:grid;gap:6px"><b style="font-family:var(--display);font-size:clamp(34px,7vw,52px);font-weight:600;line-height:1;font-variant-numeric:tabular-nums">${v}</b><span class="sec">${l}</span></div>`;
   return `<div class="bar"><h2>Summary</h2><div class="seg"><button data-sm="-1" aria-label="Previous month">‹</button><button aria-pressed="true" style="min-width:140px">${mName}</button><button data-sm="1" aria-label="Next month" ${m>=cur?"disabled":""}>›</button></div>${m!==cur?`<button class="btn sm" data-sm="0">This month</button>`:""}</div>
-  <section class="kpis">
-    ${tile(fmt(area,0)+" m²","Orders received",`${wos.length} work order${wos.length===1?"":"s"}${noList?` · ${noList} without part list yet`:""}`)}
-    ${tile(fmt(kg/1000,1)+" t","GI in those orders",dispArea?`${fmt(dispArea,0)} m² already dispatched`:"")}
-    ${tile(lakh(billed),"Sales invoiced",`${live.length} invoices, incl. GST${drafts.length?` · ${drafts.length} draft${drafts.length>1?"s":""} not counted`:""}`)}
-    ${tile(lakh(billed-due),"Collected",billed?`${fmt(100*(billed-due)/billed,0)}% of invoiced`:"")}
-    ${tile(lakh(due),"Outstanding",`from ${live.filter(x=>+x.balance>0.5).length} invoices`,due>0?"warnk":"")}
-    ${tile(lakh(billed/(days||1)),"Sales per day",`average over ${days} day${days===1?"":"s"}`)}
-  </section>
-  <div class="dgrid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))">
-    <div class="panel tscroll"><table><thead><tr><th>Orders by client</th><th class="num">WOs</th><th class="num">m²</th></tr></thead><tbody>${oRows||`<tr><td colspan="3" class="muted">No work orders created in ${esc(mName)}</td></tr>`}</tbody>${oRows?`<tfoot><tr><td><b>Total</b></td><td class="num"><b>${wos.length}</b></td><td class="num"><b>${fmt(area,1)}</b></td></tr></tfoot>`:""}</table></div>
-    <div class="panel tscroll"><table><thead><tr><th>Sales by customer</th><th class="num">Invoices</th><th class="num">Invoiced</th><th class="num">Outstanding</th></tr></thead><tbody>${sRows||`<tr><td colspan="4" class="muted">No invoices in ${esc(mName)} yet</td></tr>`}</tbody>${sRows?`<tfoot><tr><td><b>Total</b></td><td class="num"><b>${live.length}</b></td><td class="num"><b>${inr(billed)}</b></td><td class="num"><b>${inr(due)}</b></td></tr></tfoot>`:""}</table></div>
-  </div>
-  <p class="note">Orders are work orders created in the month; m² comes from their part lists, so jobs without one count as 0 until it is imported. Sales are Zoho invoices dated in the month, including GST, refreshed by the Zoho sync every 2 hours (7:30 am–9:30 pm).${sqm?` Invoice lines on e-way bills${dlFrom?` from ${dfmt(dlFrom)}`:""} total ${fmt(sqm,0)} m².`:""}</p>`;
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px">
+    ${big(fmt(area,0)+" m²","Total square metres")}
+    ${big(lakh(sales),"Total sales")}
+  </div>`;
 }
 document.addEventListener("click",e=>{const b=e.target.closest("[data-sm]");if(!b)return;const now=istToday(),cur=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
   S.sumMonth=b.dataset.sm==="0"?null:monthShift(S.sumMonth||cur,+b.dataset.sm);if(S.sumMonth>=cur)S.sumMonth=null;render()});
