@@ -1346,7 +1346,8 @@ function monthFigures(m){
   if(sm?.sqmDone)sqm=+sm.sqm||0;
   else{const dl=S.dispatches.filter(d=>String(d.date).slice(0,7)===m&&!d.void);
     const fromSync=m+"-31">=SYNC_FROM;
-    if(fromSync){sqm=dl.reduce((a,d)=>a+(d.lines||[]).filter(l=>isSqm(l.unit)).reduce((b,l)=>b+(+l.qty||0),0),0);partial=m+"-01"<SYNC_FROM}
+    if(fromSync){sqm=dl.reduce((a,d)=>a+(d.lines||[]).filter(l=>isSqm(l.unit)).reduce((b,l)=>b+(+l.qty||0),0),0);partial=m+"-01"<SYNC_FROM;
+      if(partial&&sm?.sqmPreDone){sqm+=+sm.sqmPre||0;partial=false}}
     else pending=true}
   return {m,sales,sqm,partial,pending,invoices:inv.length||sm?.invoices||0};
 }
