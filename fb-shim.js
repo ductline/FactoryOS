@@ -4,7 +4,7 @@
 (function () {
   if (window.claude && window.claude.use) return;
   const OWNER = "nagredy@gmail.com";
-  const COLS = ["materials", "movements", "workorders", "pos", "tagjobs", "dispatches", "sales", "config"];
+  const COLS = ["materials", "movements", "workorders", "pos", "tagjobs", "dispatches", "sales", "salesMonths", "config"];
   const SDK = "https://www.gstatic.com/firebasejs/10.12.2/";
   const loadJs = src => new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => bad(new Error("Could not load " + src)); document.head.appendChild(s); });
   const $m = () => document.getElementById("main");

@@ -147,6 +147,12 @@ body.dragging *{cursor:grabbing!important}
 .dlvin{width:auto;max-width:100%;padding:1px 4px;background:transparent;border:1px solid transparent;border-radius:4px;cursor:pointer}
 .dlvin:hover,.dlvin:focus{border-color:var(--line);background:var(--bg)}
 .dlv.late b,.dlvin.late{color:var(--bad)} .dlv span{font-size:12px}
+.chart .ax{font:500 11px var(--body);fill:var(--muted)} .chart .axsel{fill:var(--fg);font-weight:700}
+.mstrip{display:inline-flex;gap:3px;vertical-align:middle}.mstrip i{width:9px;height:14px;border-radius:2px;background:var(--sunk);display:block}.mstrip i.on{background:var(--fg)}
+table.cust td{vertical-align:middle}
+.chart svg.nar .ax{font-size:13px} .chart svg.nar .vl{font-size:15px}
+.chart .vl{font:600 13px var(--display);fill:var(--fg)}
+.chart .tip{position:absolute;z-index:5;pointer-events:none;background:var(--fg);color:var(--bg);font-size:12.5px;line-height:1.5;padding:7px 10px;border-radius:6px;min-width:150px;box-shadow:0 6px 18px rgb(0 0 0 / .18)}
 .dlv .behind{flex-basis:100%;font-size:12px;color:var(--bad)}
 .card .wo{white-space:nowrap} .card .mv{flex-wrap:wrap} .card .r1>span:last-child{flex:none}
 .board.big .colh h3{font-size:18px}
@@ -1050,7 +1056,7 @@ function calcWO(items,insulated){
 }
 
 /* ===== state ===== */
-const S={db:null,user:null,uid:null,canWrite:true,materials:{},moves:[],wos:[],pos:[],tagjobs:[],dispatches:[],sales:[],sumMonth:null,sync:null,loaded:{m:0,v:0,w:0,p:0},tab:"floor",woFilter:"open",q:"",names:{}};
+const S={db:null,user:null,uid:null,canWrite:true,materials:{},moves:[],wos:[],pos:[],tagjobs:[],dispatches:[],sales:[],salesMonths:{},sumMonth:null,sync:null,loaded:{m:0,v:0,w:0,p:0},tab:"floor",woFilter:"open",q:"",names:{}};
 const TABS=[["summary","Summary"],["floor","Floor"],["draw","Drawings"],["wo","Work orders"],["stock","Stock"],["dispatch","Dispatches"],["plan","Material planning"],["po","Purchase"]];
 try{const t=localStorage.getItem("dl-tab");if(t&&TABS.some(x=>x[0]===t))S.tab=t}catch(e){}
 try{S.meeting=localStorage.getItem("dl-meeting")==="1"}catch(e){}
@@ -1328,20 +1334,110 @@ function planKey(m){const g=m.code.match(/^GI-(\d\d)(-FO)?$/);return g?`A${g[2]?
 const lakh=n=>{n=+n||0;return n>=1e7?"₹"+fmt(n/1e7,2)+" Cr":n>=1e5?"₹"+fmt(n/1e5,2)+" L":inr(n)};
 const istMonth=s=>s?new Date(s).toLocaleDateString("en-CA",{timeZone:"Asia/Kolkata"}).slice(0,7):"";
 function monthShift(m,d){const [y,mo]=m.split("-").map(Number);const t=new Date(y,mo-1+d,1);return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}`}
+/* Monthly figures: sales from Zoho invoices; m² from invoice lines (square-metre units).
+   Past months come from salesMonths (backfilled from Zoho); months the e-way bill sync covers come from dispatches. */
+const SYNC_FROM="2026-10-20";
+const isSqm=u=>/^\s*(sq\.?\s*m(tr|trs|eter|etre)?s?|m2|m²|sqm)\s*$/i.test(u||"");
+function monthFigures(m){
+  const sm=S.salesMonths[m]||null;
+  const inv=S.sales.filter(x=>String(x.date).slice(0,7)===m&&x.status!=="void"&&x.status!=="draft");
+  const sales=inv.length?inv.reduce((a,x)=>a+(+x.total||0),0):sm?+sm.total||0:null;
+  let sqm=null,partial=false,pending=false;
+  if(sm?.sqmDone)sqm=+sm.sqm||0;
+  else{const dl=S.dispatches.filter(d=>String(d.date).slice(0,7)===m&&!d.void);
+    const fromSync=m+"-31">=SYNC_FROM;
+    if(fromSync){sqm=dl.reduce((a,d)=>a+(d.lines||[]).filter(l=>isSqm(l.unit)).reduce((b,l)=>b+(+l.qty||0),0),0);partial=m+"-01"<SYNC_FROM}
+    else pending=true}
+  return {m,sales,sqm,partial,pending,invoices:inv.length||sm?.invoices||0};
+}
+function fyMonths(){const now=istToday();const y=now.getMonth()>=3?now.getFullYear():now.getFullYear()-1;const out=[];
+  for(let i=0;i<12;i++){const d=new Date(y,3+i,1);const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;out.push(k)}
+  return {y,months:out}}
+const mShort=m=>new Date(m+"-01T00:00").toLocaleDateString("en-IN",{month:"short"});
+function barChart(id,rows,o){
+  const nar=innerWidth<640,W=nar?420:760,H=nar?240:260,L=nar?40:56,R=nar?6:12,T=26,B=34,cw=(W-L-R)/rows.length,bw=Math.min(38,cw*.56);
+  const vals=rows.map(r=>r.v).filter(v=>v!=null);const max=Math.max(1,...vals);
+  const step=niceStep(max/4),top=Math.ceil(max/step)*step;const y=v=>T+(H-T-B)*(1-v/top);
+  let g="";for(let t=0;t<=top+1e-9;t+=step){g+=`<line x1="${L}" x2="${W-R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)" stroke-width="1"/><text x="${L-8}" y="${y(t)+4}" text-anchor="end" class="ax">${o.axis(t)}</text>`}
+  const bars=rows.map((r,i)=>{const cx=L+cw*i+cw/2,x=cx-bw/2;const sel=r.m===o.sel;
+    const lab=`<text x="${cx}" y="${H-B+18}" text-anchor="middle" class="ax ${sel?"axsel":""}">${mShort(r.m)}</text>`;
+    const hit=`<rect x="${L+cw*i}" y="${T}" width="${cw}" height="${H-T-B}" fill="transparent" data-bar="${id}" data-i="${i}" data-pick="${r.m}" style="cursor:${r.future?"default":"pointer"}"/>`;
+    if(r.v==null||r.future)return lab+(r.pending?`<text x="${cx}" y="${H-B-8}" text-anchor="middle" class="ax">…</text>`:"")+hit;
+    const h=Math.max(2,y(0)-y(r.v)),yy=y(0)-h,rad=Math.min(4,bw/2,h);
+    const path=`M${x},${y(0)} V${yy+rad} Q${x},${yy} ${x+rad},${yy} H${x+bw-rad} Q${x+bw},${yy} ${x+bw},${yy+rad} V${y(0)} Z`;
+    const fill=sel?"var(--fg)":"#a3a9b0";
+    return `<path d="${path}" fill="${r.partial?`url(#hatch-${sel?"d":"l"})`:fill}" ${r.partial?`stroke="${fill}" stroke-width="1.5"`:""}/>`+
+      (sel?`<text x="${cx}" y="${yy-8}" text-anchor="middle" class="vl">${o.label(r.v)}</text>`:"")+lab+hit}).join("");
+  return `<svg class="${nar?"nar":""}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.title)} by month" style="width:100%;height:auto;display:block">
+    <defs><pattern id="hatch-l" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#d9dde1"/><line x1="0" y1="0" x2="0" y2="6" stroke="#a3a9b0" stroke-width="2.5"/></pattern>
+    <pattern id="hatch-d" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#6b7178"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--fg)" stroke-width="2.5"/></pattern></defs>
+    ${g}<line x1="${L}" x2="${W-R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--muted)" stroke-width="1"/>${bars}</svg>`;
+}
+/* Customers across the financial year: billing, orders (= invoices) and the months they billed in */
+const custKey=n=>String(n||"").toUpperCase().replace(/\b(M\/S|PVT|PRIVATE|LTD|LIMITED|LLP)\b/g,"").replace(/[^A-Z0-9]/g,"").replace(/S/g,"");
+function fyCustomers(months){
+  const map=new Map();
+  months.forEach((m,mi)=>{
+    const inv=S.sales.filter(x=>String(x.date).slice(0,7)===m&&x.status!=="void"&&x.status!=="draft");
+    let rows=[];
+    if(inv.length)inv.forEach(x=>rows.push([x.customer,+x.total||0,1]));
+    else Object.entries(S.salesMonths[m]?.byCustomer||{}).forEach(([n,o])=>rows.push([n,+o.t||0,+o.n||0]));
+    rows.forEach(([n,t,c])=>{const k=custKey(n);const o=map.get(k)||{name:n,t:0,n:0,months:new Set(),names:new Map()};
+      o.t+=t;o.n+=c;o.months.add(mi);o.names.set(n,(o.names.get(n)||0)+t);map.set(k,o)});
+  });
+  return [...map.values()].map(o=>({...o,name:[...o.names.entries()].sort((a,b)=>b[1]-a[1])[0][0]})).sort((a,b)=>b.t-a.t);
+}
+function custTable(months){
+  const list=fyCustomers(months),total=list.reduce((a,o)=>a+o.t,0),max=list[0]?.t||1;
+  const shown=S.custAll?list:list.slice(0,15);
+  const rows=shown.map((o,i)=>`<tr><td class="num muted" style="width:28px">${i+1}</td>
+    <td><b>${esc(o.name)}</b><div style="height:6px;border-radius:3px;background:var(--sunk);margin-top:5px;max-width:320px"><div style="height:6px;border-radius:3px;background:var(--fg);width:${Math.max(1.5,100*o.t/max)}%"></div></div></td>
+    <td class="num"><b>${lakh(o.t)}</b><div class="note">${fmt(100*o.t/(total||1),1)}%</div></td>
+    <td class="num">${o.n}</td>
+    <td class="num">${o.n>1?`<span class="chip ${o.n-1>=10?"ok":""}">${o.n-1}</span>`:`<span class="muted">—</span>`}</td>
+    <td><span class="mstrip" title="Billed in ${o.months.size} of ${months.length} months">${months.map((m,mi)=>`<i class="${o.months.has(mi)?"on":""}" title="${mShort(m)}"></i>`).join("")}</span><span class="note" style="margin-left:6px">${o.months.size}/${months.length}</span></td></tr>`).join("");
+  const repeatCust=list.filter(o=>o.n>1).length;
+  return `<div class="panel" style="padding:16px 18px;display:grid;gap:12px">
+    <div class="bar"><p class="sec">Top customers · FY so far</p><div class="sp"></div><span class="note">${list.length} customers · ${repeatCust} ordered more than once</span></div>
+    <div class="tscroll"><table class="cust"><thead><tr><th></th><th>Customer</th><th class="num">Billing</th><th class="num">Orders</th><th class="num">Repeat orders</th><th>Months billed (${mShort(months[0])}–${mShort(months[months.length-1])})</th></tr></thead><tbody>${rows||`<tr><td colspan="6" class="muted">No invoices yet</td></tr>`}</tbody></table></div>
+    <div class="bar">${list.length>15?`<button class="btn sm" data-custall>${S.custAll?"Show top 15":"Show all "+list.length}</button>`:""}<span class="note">Billing includes GST. Orders count each Zoho invoice; repeat orders are the orders after the first.</span></div>
+  </div>`;
+}
+document.addEventListener("click",e=>{if(e.target.closest&&e.target.closest("[data-custall]")){S.custAll=!S.custAll;render()}});
+function niceStep(x){const p=10**Math.floor(Math.log10(x||1)),n=x/p;return (n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10)*p}
 function vSummary(){
   const now=istToday(),cur=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;const m=S.sumMonth||cur;
   const mName=new Date(m+"-01T00:00").toLocaleDateString("en-IN",{month:"long",year:"numeric"});
-  // total m²: work orders created this month (closed duplicates left out)
-  const area=S.wos.filter(w=>istMonth(w.createdAt)===m).reduce((a,w)=>a+(+w.area||0),0);
-  // total sales: Zoho invoices dated this month, drafts and voids left out
-  const sales=S.sales.filter(x=>String(x.date).slice(0,7)===m&&x.status!=="void"&&x.status!=="draft").reduce((a,x)=>a+(+x.total||0),0);
-  const big=(v,l)=>`<div class="panel" style="padding:22px 24px;display:grid;gap:6px"><b style="font-family:var(--display);font-size:clamp(34px,7vw,52px);font-weight:600;line-height:1;font-variant-numeric:tabular-nums">${v}</b><span class="sec">${l}</span></div>`;
+  const {y,months}=fyMonths();const fig=months.map(k=>({...monthFigures(k),future:k>cur}));
+  const f=fig.find(r=>r.m===m)||monthFigures(m);
+  const live=fig.filter(r=>!r.future);
+  const fySales=live.reduce((a,r)=>a+(r.sales||0),0),fySqm=live.reduce((a,r)=>a+(r.sqm||0),0),fyGaps=live.some(r=>r.pending||r.partial);
+  S.sumFig=fig;
+  const big=(v,l,sub)=>`<div class="panel" style="padding:22px 24px;display:grid;gap:6px"><b style="font-family:var(--display);font-size:clamp(34px,7vw,52px);font-weight:600;line-height:1;font-variant-numeric:tabular-nums">${v}</b><span class="sec">${l}</span>${sub?`<span class="note">${sub}</span>`:""}</div>`;
+  const sqmTxt=f.pending?"Filling in…":f.sqm==null?"—":fmt(f.sqm,0)+" m²";
+  const sqmSub=f.pending?"Being read from this month's Zoho invoices; usually within a few hours":f.partial?`Invoices from ${dfmt(SYNC_FROM)} only; the rest is being filled in`:"";
   return `<div class="bar"><h2>Summary</h2><div class="seg"><button data-sm="-1" aria-label="Previous month">‹</button><button aria-pressed="true" style="min-width:140px">${mName}</button><button data-sm="1" aria-label="Next month" ${m>=cur?"disabled":""}>›</button></div>${m!==cur?`<button class="btn sm" data-sm="0">This month</button>`:""}</div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px">
-    ${big(fmt(area,0)+" m²","Total square metres")}
-    ${big(lakh(sales),"Total sales")}
-  </div>`;
+    ${big(sqmTxt,"Total square metres",sqmSub)}
+    ${big(f.sales==null?"—":lakh(f.sales),"Total sales",f.sales!=null?`${f.invoices} invoices, incl. GST`:"")}
+  </div>
+  <div class="panel" style="padding:16px 18px;display:grid;gap:14px">
+    <div class="bar"><p class="sec">Financial year ${y}–${String(y+1).slice(2)}</p><div class="sp"></div><span class="note">So far: <b style="color:var(--fg)">${lakh(fySales)}</b> sales · <b style="color:var(--fg)">${fmt(fySqm,0)} m²</b>${fyGaps?" (m² still filling in)":""}</span></div>
+    <div class="charts" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:18px">
+      <figure class="chart" style="margin:0;position:relative"><figcaption class="note" style="margin-bottom:4px"><b style="color:var(--fg)">Sales</b> · ₹ lakh, incl. GST</figcaption>${barChart("s",fig.map(r=>({m:r.m,v:r.future?null:r.sales,future:r.future})),{sel:m,title:"Sales",axis:t=>fmt(t/1e5,0),label:v=>lakh(v)})}<div class="tip" hidden></div></figure>
+      <figure class="chart" style="margin:0;position:relative"><figcaption class="note" style="margin-bottom:4px"><b style="color:var(--fg)">Square metres</b> · invoiced</figcaption>${barChart("q",fig.map(r=>({m:r.m,v:r.future||r.pending?null:r.sqm,partial:r.partial,pending:r.pending,future:r.future})),{sel:m,title:"Square metres",axis:t=>t>=1000?fmt(t/1000,t%1000?1:0)+"k":fmt(t,0),label:v=>fmt(v,0)+" m²"})}<div class="tip" hidden></div></figure>
+    </div>
+    <p class="note">Tap a month to see it above. Hatched bars are partly filled in; “…” means that month is still being read from Zoho.</p>
+  </div>
+  ${custTable(months.filter(k=>k<=cur))}`;
 }
+document.addEventListener("pointermove",e=>{const r=e.target.closest&&e.target.closest("[data-bar]");document.querySelectorAll(".chart .tip").forEach(t=>{if(!r||!t.parentNode.contains(r))t.hidden=true});
+  if(!r||!S.sumFig)return;const f=S.sumFig[+r.dataset.i];if(!f||f.future)return;const fig=r.closest(".chart"),tip=fig.querySelector(".tip");
+  const name=new Date(f.m+"-01T00:00").toLocaleDateString("en-IN",{month:"long",year:"numeric"});
+  tip.innerHTML=`<b>${name}</b><div>Sales <b>${f.sales==null?"—":lakh(f.sales)}</b></div><div>m² <b>${f.pending?"filling in":f.sqm==null?"—":fmt(f.sqm,0)+(f.partial?" (partial)":"")}</b></div>`;
+  const b=fig.getBoundingClientRect();tip.hidden=false;let x=e.clientX-b.left+12;if(x+170>b.width)x=e.clientX-b.left-182;tip.style.left=x+"px";tip.style.top=Math.max(0,e.clientY-b.top-60)+"px"});
+document.addEventListener("click",e=>{const r=e.target.closest&&e.target.closest("[data-pick]");if(!r)return;const now=istToday(),cur=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  if(r.dataset.pick>cur)return;S.sumMonth=r.dataset.pick===cur?null:r.dataset.pick;render()});
 document.addEventListener("click",e=>{const b=e.target.closest("[data-sm]");if(!b)return;const now=istToday(),cur=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
   S.sumMonth=b.dataset.sm==="0"?null:monthShift(S.sumMonth||cur,+b.dataset.sm);if(S.sumMonth>=cur)S.sumMonth=null;render()});
 function vPlan(){
@@ -2443,6 +2539,7 @@ renderTabs();
   db.collection("workorders").onSnapshot(s=>{const all=s.docs.map(d=>({id:d.id,...d.data()}));S.wos=all.filter(w=>!w.closed);S.closedWos=all.filter(w=>w.closed);S.loaded.w=1;resolveNames(S.wos.flatMap(w=>[...(w.stageLog||[]).map(l=>l.by),w.issuedBy])).then(render);render()},fail);
   db.collection("pos").onSnapshot(s=>{S.pos=s.docs.map(d=>({id:d.id,...d.data()}));S.loaded.p=1;render()},fail);
   db.collection("tagjobs").onSnapshot(s=>{S.tagjobs=s.docs.map(d=>({id:d.id,...d.data()}));render()},e=>console.error(e));
+  db.collection("salesMonths").onSnapshot(s=>{S.salesMonths={};s.docs.forEach(d=>{S.salesMonths[d.id]={id:d.id,...d.data()}});if(S.tab==="summary")render()},e=>console.error(e));
   db.collection("sales").onSnapshot(s=>{S.sales=s.docs.map(d=>({id:d.id,...d.data()}));if(S.tab==="summary")render()},e=>console.error(e));
   db.collection("dispatches").onSnapshot(s=>{S.dispatches=s.docs.map(d=>({id:d.id,...d.data()}));render()},e=>console.error(e));
   db.collection("config").onSnapshot(s=>{const d=s.docs.find(x=>x.id==="zoho-sync");S.sync=d?d.data():null;const cp=s.docs.find(x=>x.id==="capacity");S.cap=cp?cp.data():null;if(S.tab==="dispatch"||S.tab==="floor"){render.force=true;render()}},e=>console.error(e));
